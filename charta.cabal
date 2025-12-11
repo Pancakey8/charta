@@ -1,0 +1,22 @@
+cabal-version:   3.16
+name:            charta
+version:         0.1.0.0
+license:         NONE
+author:          Pancakey8
+maintainer:      pancake-08@proton.me
+build-type:      Simple
+extra-doc-files: CHANGELOG.md
+
+common warnings
+    ghc-options: -Wall
+
+executable charta
+    import:           warnings
+    main-is:          Main.hs
+    build-depends:    base ^>=4.21.0.0,
+                      parsec,
+                      containers
+    hs-source-dirs:   app
+    other-modules:    Parser,
+                      Traverser
+    default-language: Haskell2010
