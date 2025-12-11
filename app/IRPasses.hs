@@ -1,8 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
 module IRPasses where
 
-import Traverser
-import Data.Maybe (mapMaybe)
+import           Data.Maybe (mapMaybe)
+import           Traverser
 
 -- Cleans up PosMarker & GotoPos
 foregoPos :: [Instruction] -> [Instruction]

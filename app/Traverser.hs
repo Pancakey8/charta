@@ -1,10 +1,10 @@
 module Traverser where
 
-import Parser (Item(..), ItemValue (..))
-import qualified Data.Set as S
-import Data.List (find)
-import Data.Maybe (isJust)
-import Control.Monad (void)
+import           Control.Monad (void)
+import           Data.List     (find)
+import           Data.Maybe    (isJust)
+import qualified Data.Set      as S
+import           Parser        (Item (..), ItemValue (..))
 
 newtype Grid = Grid [[Item]]
              deriving (Show)
@@ -34,9 +34,8 @@ data Instruction = Call String
                  | Goto String
                  | GotoPos Pos
                  | JumpTrue String
-                 | Function String
                  | Exit
-                 deriving (Show)
+                 deriving (Show, Eq)
 
 data EmitterError = Err { pos :: Pos, what :: String }
                   deriving (Show)
@@ -53,7 +52,7 @@ instance Applicative IREmitter where
       Left e -> Left e
       Right (f, instrs') ->
         case runa instrs' of
-          Left e -> Left e
+          Left e              -> Left e
           Right (a, instrs'') -> pure (f a, instrs'')
 
 instance Monad IREmitter where
@@ -74,7 +73,7 @@ throwEmit e = IREmitter $ \_ -> Left e
 showIR :: IREmitter () -> String
 showIR m =
   case runEmitter m [] of
-    Left e -> show e
+    Left e            -> show e
     Right (_, instrs) -> unlines $ map show instrs
 
 branches :: Grid -> Pos -> Direction -> [(Direction, Pos)]
@@ -82,9 +81,6 @@ branches grid (x, y) dir
   | fst dir /= 0 = [ ((0, dy), (x, y + dy)) | dy <- [-1, 1], isJust (grid ! (x, y + dy)) ]
   | snd dir /= 0 = [ ((dx, 0), (x + dx, y)) | dx <- [-1, 1], isJust (grid ! (x + dx, y)) ]
   | otherwise = error "Invalid direction"
-
-makeFunction :: String -> Grid -> Pos -> IREmitter ()
-makeFunction str grid pos = emit (Function str) >> Traverser.traverse grid pos
 
 traverse :: Grid -> Pos -> IREmitter ()
 traverse grid initPos = void $ go initPos (1, 0) S.empty
@@ -100,7 +96,7 @@ traverse grid initPos = void $ go initPos (1, 0) S.empty
             emit $ PosMarker pos 1
             emit Exit
             return emitted
-          Just item -> emit (PosMarker pos $ len item) >> 
+          Just item -> emit (PosMarker pos $ len item) >>
             case val item of
               Space -> go pos' dir emitted'
               DirLeft -> go (pos `move` (-1, 0)) (-1, 0) emitted'

@@ -3,9 +3,8 @@ fn exit_routine {
 }
 
 fn main {
-> 100 dup 1 - |
-              0
-             less
-       ^  put<?
-              > exit_routine
+> 10 1 swap - dup 0 less ? exit_routine
+                         |
+                        dup
+     ^                put<
 }

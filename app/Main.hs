@@ -1,10 +1,13 @@
 module Main (main) where
 
-import Parser
-import Traverser
-import Text.Parsec (parse)
-import IRPasses
-import Data.Foldable (for_)
+import           IRPasses
+import           Parser
+import           Text.Parsec   (parse)
+import           Traverser
+import Control.Monad (forM)
+import qualified Data.Map as M
+import Interpreter
+import Data.Functor (void)
 
 main :: IO ()
 main = do
@@ -12,14 +15,23 @@ main = do
   case res of
     Left e -> print e
     Right file -> do
-      for_ file $ \(name, body) -> do
-        let ir = makeFunction name (Grid body) (0, 0)
+      fns <- forM file $ \(name, body) -> do
+        let ir = Traverser.traverse (Grid body) (0, 0)
         putStrLn "RAW:"
+        putStrLn $ "fn " ++ name
         putStrLn $ showIR ir
         case runEmitter ir [] of
-          Left _ -> return ()
+          Left e -> do
+            print e
+            return Nothing
           Right (_, instrs) -> do
             let instrs' = doPasses instrs
             putStrLn "\nPASSES:"
+            putStrLn $ "fn " ++ name
             putStrLn $ unlines $ map show instrs'
-        putStrLn "\n---\n"
+            putStrLn "\n---\n"
+            return $ Just (name, instrs')
+      case sequence fns of
+        Nothing -> return ()
+        Just fns' -> void $ runProgram $ M.fromList $
+                     map (\(name, f) -> (name, Defined f)) fns'

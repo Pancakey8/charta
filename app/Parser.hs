@@ -1,16 +1,11 @@
 module Parser where
-import Text.Parsec.String (Parser)
-import Text.Parsec
-    ( char,
-      digit,
-      satisfy,
-      option,
-      sourceColumn,
-      (<|>),
-      getPosition,
-      many1, many, lookAhead, try, string, eof, token, spaces, anyChar, manyTill )
-import Data.Char (isSpace)
-import Control.Monad (void)
+import           Control.Monad      (void)
+import           Data.Char          (isSpace)
+import           Text.Parsec        (anyChar, char, digit, eof, getPosition,
+                                     lookAhead, many, many1, manyTill, option,
+                                     satisfy, sourceColumn, spaces, string,
+                                     token, try, (<|>))
+import           Text.Parsec.String (Parser)
 
 data ItemValue = ItNum Double
                | DirLeft
@@ -78,7 +73,7 @@ grid = do
   file <- many parse1
   return $ splitLines file
   where
-    tailSafe [] = []
+    tailSafe []     = []
     tailSafe (_:xs) = xs
 
     splitLines [] = []
