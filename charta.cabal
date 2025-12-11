@@ -18,5 +18,6 @@ executable charta
                       containers
     hs-source-dirs:   app
     other-modules:    Parser,
-                      Traverser
+                      Traverser,
+                      IRPasses
     default-language: Haskell2010
