@@ -1,5 +1,5 @@
 fn exit_routine {
-> 30 put
+> "finish" put
 }
 
 fn main {

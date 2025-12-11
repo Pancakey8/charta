@@ -2,7 +2,6 @@ module Traverser where
 
 import Parser (Item(..), ItemValue (..))
 import qualified Data.Set as S
-import Debug.Trace (trace)
 import Data.List (find)
 import Data.Maybe (isJust)
 import Control.Monad (void)
@@ -29,6 +28,7 @@ c .* (x, y) = (c * x, c * y)
 
 data Instruction = Call String
                  | PushNum Double
+                 | PushStr String
                  | Label String
                  | PosMarker Pos Int -- Pos, length
                  | Goto String
@@ -109,6 +109,9 @@ traverse grid initPos = void $ go initPos (1, 0) S.empty
               DirDown -> go (pos `move` (0, 1)) (0, 1) emitted'
               ItNum n -> do
                 emit $ PushNum n
+                go pos' dir emitted'
+              StrLit s -> do
+                emit $ PushStr s
                 go pos' dir emitted'
               Sym s -> do
                 emit $ Call s

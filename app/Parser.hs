@@ -8,7 +8,7 @@ import Text.Parsec
       sourceColumn,
       (<|>),
       getPosition,
-      many1, many, lookAhead, try, string, eof, token, spaces )
+      many1, many, lookAhead, try, string, eof, token, spaces, anyChar, manyTill )
 import Data.Char (isSpace)
 import Control.Monad (void)
 
@@ -19,6 +19,7 @@ data ItemValue = ItNum Double
                | DirDown
                | Branch
                | Sym String
+               | StrLit String
                | Space
                | LineEnd
                deriving (Show, Eq)
@@ -56,13 +57,21 @@ space = do
   sp <- many1 $ satisfy (\c -> isSpace c && c /= '\n')
   return Item { len = length sp, val = Space }
 
+strLit :: Parser Item
+strLit = do
+  start <- getPosition
+  void $ char '"'
+  s <- manyTill anyChar $ char '"'
+  end <- getPosition
+  return Item { len = sourceColumn end - sourceColumn start, val = StrLit s }
+
 lineBreak :: Parser Item
 lineBreak = do
   void $ char '\n'
   return Item { len = 0, val = LineEnd }
 
 parse1 :: Parser Item
-parse1 = num <|> specials <|> lineBreak <|> space <|> sym
+parse1 = num <|> strLit <|> specials <|> lineBreak <|> space <|> sym
 
 grid :: Parser [[Item]]
 grid = do
