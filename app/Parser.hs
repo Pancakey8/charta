@@ -8,7 +8,7 @@ import Text.Parsec
       sourceColumn,
       (<|>),
       getPosition,
-      many1, many, lookAhead, try )
+      many1, many, lookAhead, try, string, eof, token, spaces )
 import Data.Char (isSpace)
 import Control.Monad (void)
 
@@ -48,7 +48,7 @@ specials = do
 
 sym :: Parser Item
 sym = do
-  sym <- many1 $ satisfy (\c -> not (isSpace c) && c `notElem` "<>|^?")
+  sym <- many1 $ satisfy (\c -> not (isSpace c) && c `notElem` "<>|^?{}")
   return Item { len = length sym, val = Sym sym }
 
 space :: Parser Item
@@ -64,8 +64,8 @@ lineBreak = do
 parse1 :: Parser Item
 parse1 = num <|> specials <|> lineBreak <|> space <|> sym
 
-parseEOF :: Parser [[Item]]
-parseEOF = do
+grid :: Parser [[Item]]
+grid = do
   file <- many parse1
   return $ splitLines file
   where
@@ -76,3 +76,24 @@ parseEOF = do
     splitLines is =
       let (line, rest) = span (\item -> val item /= LineEnd) is
       in line : splitLines (tailSafe rest)
+
+type Function = (String, [[Item]])
+
+func :: Parser Function
+func = do
+  void $ string "fn"
+  spaces
+  Item { val = Sym s } <- sym
+  spaces
+  void $ string "{"
+  void $ char '\n'
+  body <- grid
+  void $ string "}"
+  return (s, body)
+
+
+parseProgram :: Parser [Function]
+parseProgram = do
+  fns <- many $ spaces *> func <* spaces
+  eof
+  return fns

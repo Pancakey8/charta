@@ -34,6 +34,7 @@ data Instruction = Call String
                  | Goto String
                  | GotoPos Pos
                  | JumpTrue String
+                 | Function String
                  | Exit
                  deriving (Show)
 
@@ -82,8 +83,11 @@ branches grid (x, y) dir
   | snd dir /= 0 = [ ((dx, 0), (x + dx, y)) | dx <- [-1, 1], isJust (grid ! (x + dx, y)) ]
   | otherwise = error "Invalid direction"
 
+makeFunction :: String -> Grid -> Pos -> IREmitter ()
+makeFunction str grid pos = emit (Function str) >> Traverser.traverse grid pos
+
 traverse :: Grid -> Pos -> IREmitter ()
-traverse grid initPos = trace (show grid) $ void $ go initPos (1, 0) S.empty
+traverse grid initPos = void $ go initPos (1, 0) S.empty
   where
     go :: Pos -> Direction -> S.Set Pos -> IREmitter (S.Set Pos)
     go pos dir emitted
@@ -91,7 +95,6 @@ traverse grid initPos = trace (show grid) $ void $ go initPos (1, 0) S.empty
           emit $ GotoPos pos
           return emitted
       | otherwise =
-        trace ("Emitting " ++ show pos) $
         case grid ! pos of
           Nothing -> do
             emit $ PosMarker pos 1
