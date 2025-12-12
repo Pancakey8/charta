@@ -3,8 +3,8 @@ import           Control.Monad      (void)
 import           Data.Char          (isSpace)
 import           Text.Parsec        (anyChar, char, digit, eof, getPosition,
                                      lookAhead, many, many1, manyTill, option,
-                                     satisfy, sourceColumn, spaces, string,
-                                     token, try, (<|>))
+                                     satisfy, sourceColumn, spaces, string, try,
+                                     (<|>))
 import           Text.Parsec.String (Parser)
 
 data ItemValue = ItNum Double
@@ -44,8 +44,8 @@ specials = do
 
 sym :: Parser Item
 sym = do
-  sym <- many1 $ satisfy (\c -> not (isSpace c) && c `notElem` "←→↑↓?{}")
-  return Item { len = length sym, val = Sym sym }
+  symStr <- many1 $ satisfy (\c -> not (isSpace c) && c `notElem` "←→↑↓?{}")
+  return Item { len = length symStr, val = Sym symStr }
 
 space :: Parser Item
 space = do

@@ -37,7 +37,7 @@ data Instruction = Call String
                  | Exit
                  deriving (Show, Eq)
 
-data EmitterError = Err { pos :: Pos, what :: String }
+data EmitterError = Err { posn :: Pos, what :: String }
                   deriving (Show)
 
 newtype IREmitter a = IREmitter { runEmitter :: [Instruction] -> Either EmitterError (a, [Instruction]) }
@@ -127,7 +127,7 @@ traverse grid initPos = void $ go initPos (1, 0) S.empty
                     emittedSuc <- go success dir' emitted'
                     return $ emittedFail `S.union` emittedSuc
                   bs -> do
-                    throwEmit $ Err { pos = pos, what = "Branch expects 1 outgoing direction, found " ++ show (length bs) }
+                    throwEmit $ Err { posn = pos, what = "Branch expects 1 outgoing direction, found " ++ show (length bs) }
                     return emitted'
               LineEnd -> error "LineEnd unreachable at traversal"
             where

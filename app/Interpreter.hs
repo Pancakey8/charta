@@ -1,13 +1,11 @@
 module Interpreter where
 
-import qualified Data.Map          as M
+import qualified Data.Map   as M
 
-import           Control.Exception (evaluate)
 import           Core
-import           Data.List         (find)
-import           Data.Maybe        (fromJust)
-import           Debug.Trace       (trace)
-import           Traverser         (Instruction (..))
+import           Data.List  (find)
+import           Data.Maybe (fromJust)
+import           Traverser  (Instruction (..))
 
 data Frame = Frame { prog :: [Instruction], pc :: Int }
            deriving (Show)
@@ -24,7 +22,7 @@ run ctx = -- trace (show ctx) $
       in if instr == Exit
          then
            case fs of
-             f':fs -> run ctx { frames = f' { pc = pc f' + 1 } : fs }
+             f':fs' -> run ctx { frames = f' { pc = pc f' + 1 } : fs' }
              []    -> run ctx { frames = [] }
          else step instr ctx >>= run
 
@@ -45,7 +43,7 @@ step i ctx = -- trace (show $ stack ctx) $
 
     PushStr s     -> advance ctx { stack = ValStr s : stack ctx }
 
-    Label l       -> advance ctx
+    Label _       -> advance ctx
 
     Goto l        -> performGo l ctx
 
@@ -61,10 +59,10 @@ step i ctx = -- trace (show $ stack ctx) $
                      -- ^ due to being handled in 'run'
   where
     performGo :: String -> Context -> IO Context
-    performGo label ctx = let f:fs = frames ctx
-                              n = fst $ fromJust $ find ((==Label label) . snd) $
-                                  zip [0..] (prog f)
-                          in return ctx { frames = f { pc = n } : fs }
+    performGo label ctx' = let f:fs = frames ctx'
+                               n = fst $ fromJust $ find ((==Label label) . snd) $
+                                   zip [0..] (prog f)
+                          in return ctx' { frames = f { pc = n } : fs }
 
 runProgram :: FuncTable -> IO Context
 runProgram table = do

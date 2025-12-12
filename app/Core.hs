@@ -5,6 +5,7 @@ import Traverser (Instruction)
 import Parser (num, Item (..), ItemValue (..))
 import Text.Parsec (parse)
 import GHC.Float (double2Int)
+import Data.Fixed (mod')
 
 data Function = Defined [Instruction]
               | Internal ([Value] -> IO [Value])
@@ -40,47 +41,52 @@ dup (v:vs) = return $ v:v:vs
 
 pop :: [Value] -> IO [Value]
 pop [] = return []
-pop (v:vs) = return vs
+pop (_:vs) = return vs
 
 swap :: [Value] -> IO [Value]
 swap [] = return []
-swap vs@[v] = return vs
+swap vs@[_] = return vs
 swap (v1:v2:vs) = return $ v2:v1:vs
 
 rot :: [Value] -> IO [Value]
 rot [] = return []
-rot vs@[v] = return vs
+rot vs@[_] = return vs
 rot [v1, v2] = return [v2, v1]
 rot (v1:v2:v3:vs) = return $ v3:v1:v2:vs
 
 over :: [Value] -> IO [Value]
 over [] = return []
-over vs@[v] = return vs
+over vs@[_] = return vs
 over (v1:v2:vs) = return $ v2:v1:v2:vs
 
 -- Arithmetic
 add :: [Value] -> IO [Value]
 add [] = return []
-add vs@[v] = return vs
+add vs@[_] = return vs
 add (ValStr s1:ValStr s2:vs) = return $ ValStr (s1 ++ s2):vs
 add (v1:v2:vs) = return $ ValNum (numeric v1 + numeric v2):vs
 
 sub :: [Value] -> IO [Value]
 sub [] = return []
-sub vs@[v] = return vs
+sub vs@[_] = return vs
 sub (v1:v2:vs) = return $ ValNum (numeric v1 - numeric v2):vs
 
 mult :: [Value] -> IO [Value]
 mult [] = return []
-mult vs@[v] = return vs
+mult vs@[_] = return vs
 mult (ValNum n:ValStr s:vs) = return $ ValStr (concat $ replicate (double2Int n) s):vs
-mult (v1@(ValStr s):v2@(ValNum n):vs) = mult $ v2:v1:vs
+mult (v1@(ValStr _):v2@(ValNum _):vs) = mult $ v2:v1:vs
 mult (v1:v2:vs) = return $ ValNum (numeric v1 * numeric v2):vs
 
 div' :: [Value] -> IO [Value]
 div' [] = return []
-div' vs@[v] = return vs
+div' vs@[_] = return vs
 div' (v1:v2:vs) = return $ ValNum (numeric v1 / numeric v2):vs
+
+modNum :: [Value] -> IO [Value]
+modNum [] = return []
+modNum vs@[_] = return vs
+modNum (v1:v2:vs) = return $ ValNum (numeric v1 `mod'` numeric v2):vs
 
 -- Logic
 pushTrue :: [Value] -> IO [Value]
@@ -91,33 +97,47 @@ pushFalse vs = return $ ValBool False:vs
 
 equals :: [Value] -> IO [Value]
 equals [] = return [ValBool False]
-equals [v] = return [ValBool True]
+equals [_] = return [ValBool True]
 equals (v1:v2:vs) = return $ ValBool (v1 == v2):vs
 
 notEquals :: [Value] -> IO [Value]
 notEquals [] = return [ValBool False]
-notEquals [v] = return [ValBool True]
+notEquals [_] = return [ValBool True]
 notEquals (v1:v2:vs) = return $ ValBool (v1 /= v2):vs
 
 less :: [Value] -> IO [Value]
 less [] = return [ValBool False]
-less [v] = return [ValBool True]
+less [_] = return [ValBool True]
 less (v1:v2:vs) = return $ ValBool (numeric v1 < numeric v2):vs
 
 greater :: [Value] -> IO [Value]
 greater [] = return [ValBool False]
-greater [v] = return [ValBool True]
+greater [_] = return [ValBool True]
 greater (v1:v2:vs) = return $ ValBool (numeric v1 > numeric v2):vs
 
 lessEq :: [Value] -> IO [Value]
 lessEq [] = return [ValBool False]
-lessEq [v] = return [ValBool True]
+lessEq [_] = return [ValBool True]
 lessEq (v1:v2:vs) = return $ ValBool (numeric v1 <= numeric v2):vs
 
 greaterEq :: [Value] -> IO [Value]
 greaterEq [] = return [ValBool False]
-greaterEq [v] = return [ValBool True]
+greaterEq [_] = return [ValBool True]
 greaterEq (v1:v2:vs) = return $ ValBool (numeric v1 >= numeric v2):vs
+
+boolAnd :: [Value] -> IO [Value]
+boolAnd [] = return []
+boolAnd vs@[_] = return vs
+boolAnd (v1:v2:vs) = return $ ValBool (truthy v1 && truthy v2):vs
+
+boolOr :: [Value] -> IO [Value]
+boolOr [] = return []
+boolOr vs@[_] = return vs
+boolOr (v1:v2:vs) = return $ ValBool (truthy v1 || truthy v2):vs
+
+boolNot :: [Value] -> IO [Value]
+boolNot [] = return []
+boolNot (v:vs) = return $ ValBool (not $ truthy v):vs
 
 -- I/O
 put :: [Value] -> IO [Value]
@@ -128,23 +148,27 @@ put (ValBool False:vs) = putStrLn "⊥" >> return vs
 put (ValNum n:vs) = print n >> return vs
 
 coreTable :: FuncTable
-coreTable = M.fromList $ map (\(name, fn) -> (name, Internal fn)) [
-  ("⇈", dup), -- \upuparrows
-  ("∅", pop), -- \emptyset
-  ("↻", rot), -- \circlearrowright
-  ("↕", swap), -- \updownarrow
-  ("⤴", over), -- arrow pointing right then curving up
-  ("+", add),
-  ("-", sub),
-  ("*", mult),
-  ("/", div'),
-  ("⊤", pushTrue), -- \top
-  ("⊥", pushFalse), -- \bot
-  ("=", equals),
-  ("≠", notEquals), -- neq
-  ("<", less),
-  (">", greater),
-  ("≤", lessEq), -- \leq
-  ("≥", greaterEq), -- \geq
-  ("put", put)
+coreTable = M.fromList $ concatMap (\(names, fn) -> [ (name, Internal fn) | name <- names ]) [
+  (["⇈", "dup"], dup), -- \upuparrows
+  (["∅", "pop"], pop), -- \emptyset
+  (["↻", "rot"], rot), -- \circlearrowright
+  (["↕", "swp"], swap), -- \updownarrow
+  (["⤴", "ovr"], over), -- arrow pointing right then curving up
+  (["+"], add),
+  (["-"], sub),
+  (["*"], mult),
+  (["/"], div'),
+  (["%"], modNum),
+  (["⊤", "T"], pushTrue), -- \top
+  (["⊥", "F"], pushFalse), -- \bot
+  (["="], equals),
+  (["≠", "!="], notEquals), -- neq
+  (["<"], less),
+  ([">"], greater),
+  (["≤", "<="], lessEq), -- \leq
+  (["≥", ">="], greaterEq), -- \geq
+  (["∧", "&&"], boolAnd), -- \wedge
+  (["∨", "||"], boolOr), -- \vee
+  (["¬", "!"], boolNot), -- \neg
+  (["put"], put)
   ]
