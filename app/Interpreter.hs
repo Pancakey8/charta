@@ -6,11 +6,12 @@ import           Core
 import           Data.List  (find)
 import           Data.Maybe (fromJust)
 import           Traverser  (Instruction (..))
+import Debug.Trace (trace)
 
-data Frame = Frame { prog :: [Instruction], pc :: Int }
+data Frame = Frame { prog :: [Instruction], pc :: Int, stack :: [Value] }
            deriving (Show)
 
-data Context = Ctx { frames :: [Frame], stack :: [Value], fns :: FuncTable }
+data Context = Ctx { frames :: [Frame], fns :: FuncTable }
              deriving (Show)
 
 run :: Context -> IO Context
@@ -20,9 +21,9 @@ run ctx = -- trace (show ctx) $
     f:fs ->
       let instr = prog f !! pc f
       in if instr == Exit
-         then
+         then -- trace (show f) $
            case fs of
-             f':fs' -> run ctx { frames = f' { pc = pc f' + 1 } : fs' }
+             f':fs' -> run ctx { frames = f' { pc = pc f' + 1, stack = stack f ++ stack f' } : fs' }
              []    -> run ctx { frames = [] }
          else step instr ctx >>= run
 
@@ -32,25 +33,37 @@ advance ctx =
     f : fs -> return ctx { frames = f { pc = pc f + 1 } : fs }
     []     -> return ctx
 
+headStack :: Context -> Value
+headStack = head . stack . head . frames 
+
+modifyStack :: Context -> ([Value] -> [Value]) -> Context
+modifyStack ctx m = let f:fs = frames ctx
+                    in ctx { frames = f { stack = m (stack f) } : fs }
+
 step :: Instruction -> Context -> IO Context
 step i ctx = -- trace (show $ stack ctx) $
   case i of
-    Call f        -> case fns ctx M.! f of
-                       Defined body -> return ctx { frames = Frame body 0 : frames ctx }
-                       Internal fn -> fn (stack ctx) >>= \c -> advance ctx { stack = c }
+    Call f        -> case fns ctx M.! f of -- TODO: Handle fn not found
+                       Defined argc body -> let f:fs = frames ctx -- TODO: Handle few-args errors.
+                                            in return ctx { frames = Frame body 0 (take argc $ stack f)
+                                                                     : f { stack = drop argc $ stack f }
+                                                                     : fs }
+                       Internal fn -> fn (stack $ head $ frames ctx) >>= \c -> advance $
+                                                                               modifyStack ctx (const c)
 
-    PushNum n     -> advance ctx { stack = ValNum n : stack ctx }
+    PushNum n     -> advance $ modifyStack ctx $ \stk -> ValNum n : stk
 
-    PushStr s     -> advance ctx { stack = ValStr s : stack ctx }
+    PushStr s     -> advance $ modifyStack ctx $ \stk -> ValStr s : stk
 
     Label _       -> advance ctx
 
     Goto l        -> performGo l ctx
 
-    JumpTrue l    -> let (top:rs) = stack ctx
+    JumpTrue l    -> let ctx' = modifyStack ctx $ \(top:rs) -> rs -- TODO: Handle empty stack
+                         top = headStack ctx
                      in if truthy top
-                        then performGo l ctx { stack = rs }
-                        else advance ctx { stack = rs }
+                        then performGo l ctx'
+                        else advance ctx'
 
     GotoPos _     -> error "Impossible instruction hit"
     PosMarker _ _ -> error "Impossible instruction hit"
@@ -66,8 +79,7 @@ step i ctx = -- trace (show $ stack ctx) $
 
 runProgram :: FuncTable -> IO Context
 runProgram table = do
-  let Defined main = table M.! "main"
+  let Defined 0 main = table M.! "main" -- TODO: Handle fn not found
   run $ Ctx {
-    frames = [Frame { prog = main, pc = 0 }],
-    stack = [],
+    frames = [Frame { prog = main, pc = 0, stack = [] }],
     fns = coreTable `M.union` table }

@@ -7,11 +7,11 @@ import Text.Parsec (parse)
 import GHC.Float (double2Int)
 import Data.Fixed (mod')
 
-data Function = Defined [Instruction]
+data Function = Defined Int [Instruction]
               | Internal ([Value] -> IO [Value])
 
 instance Show Function where
-  show (Defined instrs) = show instrs
+  show (Defined argc instrs) = "(" ++ show argc ++ ")" ++ show instrs
   show (Internal _)     = "<internal fn>"
 
 type FuncTable = M.Map String Function
@@ -147,6 +147,9 @@ put (ValBool True:vs) = putStrLn "⊤" >> return vs
 put (ValBool False:vs) = putStrLn "⊥" >> return vs
 put (ValNum n:vs) = print n >> return vs
 
+debug :: [Value] -> IO [Value]
+debug vs = print vs >> return vs
+
 coreTable :: FuncTable
 coreTable = M.fromList $ concatMap (\(names, fn) -> [ (name, Internal fn) | name <- names ]) [
   (["⇈", "dup"], dup), -- \upuparrows
@@ -170,5 +173,6 @@ coreTable = M.fromList $ concatMap (\(names, fn) -> [ (name, Internal fn) | name
   (["∧", "&&"], boolAnd), -- \wedge
   (["∨", "||"], boolOr), -- \vee
   (["¬", "!"], boolNot), -- \neg
-  (["put"], put)
+  (["put"], put),
+  (["⚠", "dbg"], debug) -- \warning
   ]

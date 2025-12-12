@@ -44,7 +44,7 @@ specials = do
 
 sym :: Parser Item
 sym = do
-  symStr <- many1 $ satisfy (\c -> not (isSpace c) && c `notElem` "←→↑↓?{}")
+  symStr <- many1 $ satisfy (\c -> not (isSpace c) && c `notElem` "←→↑↓?{}()")
   return Item { len = length symStr, val = Sym symStr }
 
 space :: Parser Item
@@ -81,7 +81,7 @@ grid = do
       let (line, rest) = span (\item -> val item /= LineEnd) is
       in line : splitLines (tailSafe rest)
 
-type Function = (String, [[Item]])
+type Function = (String, Int, [[Item]])
 
 func :: Parser Function
 func = do
@@ -89,11 +89,15 @@ func = do
   spaces
   Item { val = Sym s } <- sym
   spaces
+  void $ char '('
+  args <- many $ spaces *> sym <* spaces
+  void $ char ')'
+  spaces
   void $ string "{"
   void $ char '\n'
   body <- grid
   void $ string "}"
-  return (s, body)
+  return (s, length args, body)
 
 
 parseProgram :: Parser [Function]

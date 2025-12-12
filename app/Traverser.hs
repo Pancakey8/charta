@@ -98,9 +98,14 @@ traverse grid initPos = void $ go initPos (1, 0) S.empty
       | otherwise =
         case grid ! pos of
           Nothing -> do
-            emit $ PosMarker pos 1
-            emit Exit
-            return emitted
+            let Grid g = grid
+              in if fst dir == 0 && snd pos < length g -- We keep going vertically if empty line
+                                                       -- This helps avoid confusion
+                 then go (pos `move` dir) dir emitted
+                 else do
+                   emit $ PosMarker pos 1
+                   emit Exit
+                   return emitted
           Just item -> emit (PosMarker pos $ len item) >>
             case val item of
               Space -> go pos' dir emitted'
