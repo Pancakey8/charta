@@ -84,7 +84,7 @@ grid = do
 type Function = (String, Int, [[Item]])
 
 data TopLevel = FuncDecl Function
-              | UseDrv String
+              | UseDrv String (Maybe String)
 
 func :: Parser Function
 func = do
@@ -107,7 +107,13 @@ useDrv = do
   void $ string "use"
   spaces
   Item { val = StrLit s } <- strLit
-  return $ UseDrv s
+  spaces
+  ns <- option Nothing $ do
+    void $ string "as"
+    spaces
+    Item { val = Sym s } <- sym
+    return $ Just s
+  return $ UseDrv s ns
 
 topLevel :: Parser TopLevel
 topLevel = (FuncDecl <$> func) <|> useDrv
