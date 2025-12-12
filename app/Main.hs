@@ -1,13 +1,14 @@
 module Main (main) where
 
+import           Control.Monad (forM)
+import           Core          (Function (Defined))
+import           Data.Functor  (void)
+import qualified Data.Map      as M
+import           Interpreter
 import           IRPasses
 import           Parser
 import           Text.Parsec   (parse)
 import           Traverser
-import Control.Monad (forM)
-import qualified Data.Map as M
-import Interpreter
-import Data.Functor (void)
 
 main :: IO ()
 main = do

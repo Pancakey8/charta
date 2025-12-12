@@ -20,5 +20,6 @@ executable charta
     other-modules:    Parser,
                       Traverser,
                       IRPasses,
-                      Interpreter
+                      Interpreter,
+                      Core
     default-language: Haskell2010

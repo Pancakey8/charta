@@ -35,16 +35,16 @@ num = try $ do
 
 specials :: Parser Item
 specials = do
-  dir <- (char '>' >> return DirRight)
-         <|> (char '<' >> return DirLeft)
-         <|> (char '|' >> return DirDown)
-         <|> (char '^' >> return DirUp)
+  dir <- (char '→' >> return DirRight) -- \leftarrow
+         <|> (char '←' >> return DirLeft) -- \rightarrow
+         <|> (char '↓' >> return DirDown) -- \downarrow
+         <|> (char '↑' >> return DirUp) -- \uparrow
          <|> (char '?' >> return Branch)
   return Item { len = 1, val = dir }
 
 sym :: Parser Item
 sym = do
-  sym <- many1 $ satisfy (\c -> not (isSpace c) && c `notElem` "<>|^?{}")
+  sym <- many1 $ satisfy (\c -> not (isSpace c) && c `notElem` "←→↑↓?{}")
   return Item { len = length sym, val = Sym sym }
 
 space :: Parser Item

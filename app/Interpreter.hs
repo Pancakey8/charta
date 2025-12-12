@@ -1,63 +1,13 @@
 module Interpreter where
 
-import qualified Data.Map   as M
+import qualified Data.Map          as M
 
-import           Data.List  (find)
-import           Data.Maybe (fromJust)
-import           Traverser  (Instruction (..))
-import Debug.Trace (trace)
-import Control.Exception (evaluate)
-
-data Function = Defined [Instruction]
-              | Internal ([Value] -> IO [Value])
-
-instance Show Function where
-  show (Defined instrs) = show instrs
-  show (Internal _) = "<internal fn>"
-
-type FuncTable = M.Map String Function
-
-coreDup :: [Value] -> IO [Value]
-coreDup [] = return []
-coreDup (v:vs) = return $ v:v:vs
-
-coreSwap :: [Value] -> IO [Value]
-coreSwap [] = return []
-coreSwap [a] = return [a]
-coreSwap (a:b:vs) = return $ b:a:vs
-
-corePut :: [Value] -> IO [Value]
-corePut (ValStr s:vs) = putStrLn s >> return vs
-corePut (ValNum n:vs) = print n >> return vs
-corePut (ValBool b:vs) = print b >> return vs
-
-coreLess :: [Value] -> IO [Value]
-coreLess (ValNum a:ValNum b:vs) = return $ ValBool (a < b) : vs
-
-coreSub :: [Value] -> IO [Value]
-coreSub (ValNum a:ValNum b:vs) = return $ ValNum (a - b) : vs
-
-core :: M.Map String Function
-core = M.fromList $ map (\(name, fn) -> (name, Internal fn)) 
-  [
-    ("dup", coreDup),
-    ("swap", coreSwap),
-    ("put", corePut),
-    ("less", coreLess),
-    ("-", coreSub)
-  ]
-
-data Value = ValStr String
-           | ValNum Double
-           | ValBool Bool
-           deriving (Show)
-
-truthy :: Value -> Bool
-truthy (ValStr "") = False
-truthy (ValStr _)  = True
-truthy (ValNum 0)  = False
-truthy (ValNum _)  = True
-truthy (ValBool b) = b
+import           Control.Exception (evaluate)
+import           Core
+import           Data.List         (find)
+import           Data.Maybe        (fromJust)
+import           Debug.Trace       (trace)
+import           Traverser         (Instruction (..))
 
 data Frame = Frame { prog :: [Instruction], pc :: Int }
            deriving (Show)
@@ -75,7 +25,7 @@ run ctx = -- trace (show ctx) $
          then
            case fs of
              f':fs -> run ctx { frames = f' { pc = pc f' + 1 } : fs }
-             [] -> run ctx { frames = [] }
+             []    -> run ctx { frames = [] }
          else step instr ctx >>= run
 
 advance :: Context -> IO Context
@@ -122,4 +72,4 @@ runProgram table = do
   run $ Ctx {
     frames = [Frame { prog = main, pc = 0 }],
     stack = [],
-    fns = core `M.union` table }
+    fns = coreTable `M.union` table }
