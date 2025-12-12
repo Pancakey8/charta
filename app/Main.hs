@@ -1,16 +1,34 @@
 module Main (main) where
 
-import           Control.Monad      (forM)
-import           Core               (Function (Defined))
+import           Control.Monad      (liftM2)
+import           Core               (FuncTable, Function (..))
 import           Data.Functor       (void)
 import qualified Data.Map           as M
 import           Interpreter        (runProgram)
 import           IRPasses           (doPasses)
-import           Parser             (parseProgram)
+import           Parser             (TopLevel (..), parseProgram)
 import           System.Environment (getArgs)
 import           Text.Parsec        (parse)
 import           Traverser          (Grid (Grid), IREmitter (runEmitter),
-                                     showIR, traverse)
+                                     traverse)
+
+makeProg :: [TopLevel] -> IO (Maybe FuncTable)
+makeProg [] = return $ Just M.empty
+makeProg (UseDrv s:tls) = do
+  res <- parse parseProgram "" <$> readFile (s ++ ".ch")
+  case res of
+    Left e -> print e >> return Nothing
+    Right imp -> do
+      rest <- makeProg tls
+      this <- makeProg imp
+      return $ liftM2 M.union rest this
+makeProg (FuncDecl (name, argc, body):tls) = do
+  case runEmitter (Traverser.traverse (Grid body) (0,0)) [] of
+    Left e -> print e >> return Nothing
+    Right (_, instrs) -> do
+      rest <- makeProg tls
+      let instrs' = doPasses instrs
+      return $ M.insert name (Defined argc instrs') <$> rest
 
 main :: IO ()
 main = do
@@ -22,26 +40,9 @@ main = do
     else do
       res <- parse parseProgram "" <$> readFile (head args)
       case res of
-          Left e -> print e
-          Right file -> do
-            fns <- forM file $ \(name, argc, body) -> do
-              print body
-              let ir = Traverser.traverse (Grid body) (0, 0)
-              putStrLn "RAW:"
-              putStrLn $ "fn " ++ name
-              putStrLn $ showIR ir
-              case runEmitter ir [] of
-                Left e -> do
-                  print e
-                  return Nothing
-                Right (_, instrs) -> do
-                  let instrs' = doPasses instrs
-                  putStrLn "\nPASSES:"
-                  putStrLn $ "fn " ++ name
-                  putStrLn $ unlines $ map show instrs'
-                  putStrLn "\n---\n"
-                  return $ Just (name, argc, instrs')
-            case sequence fns of
-              Nothing -> return ()
-              Just fns' -> void $ runProgram $ M.fromList $
-                           map (\(name, argc, f) -> (name, Defined argc f)) fns'
+        Left e -> print e
+        Right tls -> do
+          prog <- makeProg tls
+          case prog of
+            Nothing  -> return ()
+            Just tbl -> void $ runProgram tbl

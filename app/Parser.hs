@@ -83,6 +83,9 @@ grid = do
 
 type Function = (String, Int, [[Item]])
 
+data TopLevel = FuncDecl Function
+              | UseDrv String
+
 func :: Parser Function
 func = do
   void $ string "fn"
@@ -99,9 +102,18 @@ func = do
   void $ string "}"
   return (s, length args, body)
 
+useDrv :: Parser TopLevel
+useDrv = do
+  void $ string "use"
+  spaces
+  Item { val = StrLit s } <- strLit
+  return $ UseDrv s
 
-parseProgram :: Parser [Function]
+topLevel :: Parser TopLevel
+topLevel = (FuncDecl <$> func) <|> useDrv
+  
+parseProgram :: Parser [TopLevel]
 parseProgram = do
-  fns <- many $ spaces *> func <* spaces
+  tls <- many $ spaces *> topLevel <* spaces
   eof
-  return fns
+  return tls
