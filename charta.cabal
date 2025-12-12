@@ -15,7 +15,8 @@ executable charta
     main-is:          Main.hs
     build-depends:    base ^>=4.21.0.0,
                       parsec,
-                      containers
+                      containers,
+                      filepath
     hs-source-dirs:   app
     other-modules:    Parser,
                       Traverser,

@@ -11,22 +11,26 @@ import           System.Environment (getArgs)
 import           Text.Parsec        (parse)
 import           Traverser          (Grid (Grid), IREmitter (runEmitter),
                                      traverse)
+import System.FilePath ((</>), dropFileName)
+import Debug.Trace (trace)
 
-makeProg :: [TopLevel] -> IO (Maybe FuncTable)
-makeProg [] = return $ Just M.empty
-makeProg (UseDrv s:tls) = do
-  res <- parse parseProgram "" <$> readFile (s ++ ".ch")
+newtype ProgContext = Prog { root :: FilePath }
+
+makeProg :: ProgContext -> [TopLevel] -> IO (Maybe FuncTable)
+makeProg _ [] = return $ Just M.empty
+makeProg ctx (UseDrv s:tls) = do
+  res <- parse parseProgram "" <$> readFile (root ctx </> (s ++ ".ch"))
   case res of
     Left e -> print e >> return Nothing
     Right imp -> do
-      rest <- makeProg tls
-      this <- makeProg imp
+      rest <- makeProg ctx tls
+      this <- makeProg ctx imp
       return $ liftM2 M.union rest this
-makeProg (FuncDecl (name, argc, body):tls) = do
+makeProg ctx (FuncDecl (name, argc, body):tls) = do
   case runEmitter (Traverser.traverse (Grid body) (0,0)) [] of
     Left e -> print e >> return Nothing
     Right (_, instrs) -> do
-      rest <- makeProg tls
+      rest <- makeProg ctx tls
       let instrs' = doPasses instrs
       return $ M.insert name (Defined argc instrs') <$> rest
 
@@ -38,11 +42,12 @@ main = do
       putStrLn "Usage: charta <source-file.ch>"
       return ()
     else do
+      let root' = dropFileName (head args)
       res <- parse parseProgram "" <$> readFile (head args)
       case res of
         Left e -> print e
         Right tls -> do
-          prog <- makeProg tls
+          prog <- makeProg Prog { root = root' } tls
           case prog of
             Nothing  -> return ()
             Just tbl -> void $ runProgram tbl
