@@ -54,19 +54,37 @@ space = do
   sp <- many1 $ satisfy (\c -> isSpace c && c /= '\n')
   return Item { len = length sp, val = Space }
 
+comment :: Parser Item
+comment = do
+  start <- getPosition
+  void $ string "{#"
+  sp <- manyTill anyChar $ string "#}"
+  end <- getPosition
+  return Item { len = sourceColumn end - sourceColumn start, val = Space }
+
+escape :: Char -> Char
+escape 'n' = '\n'
+escape 't' = '\t'
+escape c = c
+
 strLit :: Parser Item
 strLit = do
   start <- getPosition
   void $ char '"'
-  s <- manyTill anyChar $ char '"'
+  s <- manyTill charP $ char '"'
   end <- getPosition
   return Item { len = sourceColumn end - sourceColumn start, val = StrLit s }
+
+charP :: Parser Char
+charP = anyChar >>= \c -> if c == '\\'
+                          then escape <$> anyChar
+                          else return c
 
 charLit :: Parser Item
 charLit = do
   start <- getPosition
   void $ char '#'
-  c <- anyChar
+  c <- charP
   end <- getPosition
   return Item { len = sourceColumn end - sourceColumn start, val = CharLit c }
 
@@ -85,7 +103,7 @@ lineBreak = do
   return Item { len = 0, val = LineEnd }
 
 parse1 :: Parser Item
-parse1 = num <|> strLit <|> fnRef <|> charLit <|> specials <|> lineBreak <|> space <|> sym
+parse1 = num <|> strLit <|> fnRef <|> charLit <|> specials <|> lineBreak <|> comment <|> space <|> sym
 
 grid :: Parser [[Item]]
 grid = do
