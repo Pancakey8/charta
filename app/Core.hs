@@ -4,8 +4,9 @@ import qualified Data.Map    as M
 import Traverser (Instruction)
 import Parser (num, Item (..), ItemValue (..))
 import Text.Parsec (parse)
-import GHC.Float (double2Int)
+import GHC.Float (double2Int, int2Double)
 import Data.Fixed (mod')
+import Data.List (singleton, intercalate)
 
 data Function = Defined Int [Instruction]
               | Internal ([Value] -> IO [Value])
@@ -19,14 +20,14 @@ type FuncTable = M.Map String Function
 data Value = ValStr String
            | ValNum Double
            | ValBool Bool
+           | ValStack [Value]
            deriving (Show, Eq)
 
 truthy :: Value -> Bool
-truthy (ValStr "") = False
-truthy (ValStr _)  = True
-truthy (ValNum 0)  = False
-truthy (ValNum _)  = True
+truthy (ValStr s) = not $ null s
+truthy (ValNum n) = n /= 0
 truthy (ValBool b) = b
+truthy (ValStack vs) = not $ null vs
 
 numeric :: Value -> Double
 numeric (ValNum n) = n
@@ -34,6 +35,14 @@ numeric (ValBool b) = if b then 1.0 else 0.0
 numeric (ValStr s) = case parse num "" s of
                        Right Item { val = ItNum n } -> n
                        _ -> error "Failed conversion string->number"
+numeric (ValStack _) = error "Failed conversion stack->number"
+
+stringified :: Value -> String
+stringified (ValStr s) = s
+stringified (ValNum n) = show n
+stringified (ValBool b) = if b then "⊤" else "⊥"
+stringified (ValStack s) = "[" ++ intercalate ", " (map stringified s) ++ "]"
+
 -- Stack ops
 dup :: [Value] -> IO [Value]
 dup [] = return []
@@ -58,6 +67,19 @@ over :: [Value] -> IO [Value]
 over [] = return []
 over vs@[_] = return vs
 over (v1:v2:vs) = return $ v2:v1:v2:vs
+
+pack :: [Value] -> IO [Value]
+pack vs = return [ValStack vs]
+
+splat :: [Value] -> IO [Value]
+splat (ValStack stk:vs) = return $ stk ++ vs
+splat vs = return vs
+
+depth :: [Value] -> IO [Value]
+depth vs = return $ ValNum (int2Double $ length vs):vs
+
+empty :: [Value] -> IO [Value]
+empty vs = return $ ValBool (null vs):vs
 
 -- Arithmetic
 add :: [Value] -> IO [Value]
@@ -139,6 +161,35 @@ boolNot :: [Value] -> IO [Value]
 boolNot [] = return []
 boolNot (v:vs) = return $ ValBool (not $ truthy v):vs
 
+-- Conversions
+asStr :: [Value] -> IO [Value]
+asStr [] = return []
+asStr (v:vs) = return $ ValStr (stringified v):vs
+
+asNum :: [Value] -> IO [Value]
+asNum [] = return []
+asNum (v:vs) = return $ ValNum (numeric v):vs
+
+asBool :: [Value] -> IO [Value]
+asBool [] = return []
+asBool (v:vs) = return $ ValBool (truthy v):vs
+
+isStr :: [Value] -> IO [Value]
+isStr vs@(ValStr _ :_) = return $ ValBool True:vs
+isStr vs = return $ ValBool False:vs
+
+isNum :: [Value] -> IO [Value]
+isNum vs@(ValNum _ :_) = return $ ValBool True:vs
+isNum vs = return $ ValBool False:vs
+
+isBool :: [Value] -> IO [Value]
+isBool vs@(ValBool _ :_) = return $ ValBool True:vs
+isBool vs = return $ ValBool False:vs
+
+isStack :: [Value] -> IO [Value]
+isStack vs@(ValStack _ :_) = return $ ValBool True:vs
+isStack vs = return $ ValBool False:vs
+
 -- I/O
 put :: [Value] -> IO [Value]
 put [] = return []
@@ -146,6 +197,7 @@ put (ValStr s:vs) = putStrLn s >> return vs
 put (ValBool True:vs) = putStrLn "⊤" >> return vs
 put (ValBool False:vs) = putStrLn "⊥" >> return vs
 put (ValNum n:vs) = print n >> return vs
+put (ValStack s:vs) = mapM_ (put . singleton) s >> return vs
 
 debug :: [Value] -> IO [Value]
 debug vs = print vs >> return vs
@@ -157,6 +209,10 @@ coreTable = M.fromList $ concatMap (\(names, fn) -> [ (name, Internal fn) | name
   (["↻", "rot"], rot), -- \circlearrowright
   (["↕", "swp"], swap), -- \updownarrow
   (["⤴", "ovr"], over), -- arrow pointing right then curving up
+  (["▭", "pack"], pack), -- \rect
+  (["⋮", "spt"], splat), -- \vdots
+  (["≡", "dpt"], depth), -- \equiv
+  (["·", "null"], empty), -- \cdot
   (["+"], add),
   (["-"], sub),
   (["*"], mult),
@@ -165,7 +221,7 @@ coreTable = M.fromList $ concatMap (\(names, fn) -> [ (name, Internal fn) | name
   (["⊤", "T"], pushTrue), -- \top
   (["⊥", "F"], pushFalse), -- \bot
   (["="], equals),
-  (["≠", "!="], notEquals), -- neq
+  (["≠", "!="], notEquals), -- \neq
   (["<"], less),
   ([">"], greater),
   (["≤", "<="], lessEq), -- \leq
@@ -173,6 +229,13 @@ coreTable = M.fromList $ concatMap (\(names, fn) -> [ (name, Internal fn) | name
   (["∧", "&&"], boolAnd), -- \wedge
   (["∨", "||"], boolOr), -- \vee
   (["¬", "!"], boolNot), -- \neg
+  (["str"], asStr),
+  (["num"], asNum),
+  (["bool"], asBool),
+  (["¿str", "isStr"], isStr),
+  (["¿num", "isNum"], isNum),
+  (["¿bool", "isBool"], isBool),
+  (["¿stk", "isStk"], isStack),
   (["put"], put),
   (["⚠", "dbg"], debug) -- \warning
   ]
