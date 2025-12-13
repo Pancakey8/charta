@@ -63,10 +63,20 @@ pop (ValStack (v:vs):vs') = return $ v:ValStack vs:vs'
 pop (ValStr (v:vs):vs') = return $ ValChar v:ValStr vs:vs'
 pop _ = error "Fail: pop"
 
+hop :: [Value] -> IO [Value]
+hop (ValStack (v1:v2:vs):vs') = return $ v2:ValStack (v1:vs):vs'
+hop (ValStr (v1:v2:vs):vs') = return $ ValChar v2:ValStr (v1:vs):vs'
+hop _ = error "Fail: hop"
+
 firstStk :: [Value] -> IO [Value]
 firstStk (ValStack vs@(v:_):vs') = return $ v:ValStack vs:vs'
 firstStk (ValStr vs@(v:_):vs') = return $ ValChar v:ValStr vs:vs'
 firstStk _ = error "Fail: fst"
+
+secondStk :: [Value] -> IO [Value]
+secondStk (ValStack vs@(_:v:_):vs') = return $ v:ValStack vs:vs'
+secondStk (ValStr vs@(_:v:_):vs') = return $ ValChar v:ValStr vs:vs'
+secondStk _ = error "Fail: snd"
 
 bot :: [Value] -> IO [Value]
 bot (ValStack vs:vs') = return $ last vs:ValStack (init vs):vs'
@@ -115,34 +125,38 @@ shove :: [Value] -> IO [Value]
 shove (v:vs) = return $ vs ++ [v]
 shove [] = return []
 
+bring :: [Value] -> IO [Value]
+bring [] = return []
+bring vs = return $ last vs : init vs
+
 -- Arithmetic
 add :: [Value] -> IO [Value]
 add [] = return []
 add vs@[_] = return vs
-add (ValStr s1:ValStr s2:vs) = return $ ValStr (s1 ++ s2):vs
-add (v1:v2:vs) = return $ ValNum (numeric v1 + numeric v2):vs
+add (ValStr s2:ValStr s1:vs) = return $ ValStr (s1 ++ s2):vs
+add (v2:v1:vs) = return $ ValNum (numeric v1 + numeric v2):vs
 
 sub :: [Value] -> IO [Value]
 sub [] = return []
 sub vs@[_] = return vs
-sub (v1:v2:vs) = return $ ValNum (numeric v1 - numeric v2):vs
+sub (v2:v1:vs) = return $ ValNum (numeric v1 - numeric v2):vs
 
 mult :: [Value] -> IO [Value]
 mult [] = return []
 mult vs@[_] = return vs
 mult (ValNum n:ValStr s:vs) = return $ ValStr (concat $ replicate (double2Int n) s):vs
 mult (v1@(ValStr _):v2@(ValNum _):vs) = mult $ v2:v1:vs
-mult (v1:v2:vs) = return $ ValNum (numeric v1 * numeric v2):vs
+mult (v2:v1:vs) = return $ ValNum (numeric v1 * numeric v2):vs
 
 div' :: [Value] -> IO [Value]
 div' [] = return []
 div' vs@[_] = return vs
-div' (v1:v2:vs) = return $ ValNum (numeric v1 / numeric v2):vs
+div' (v2:v1:vs) = return $ ValNum (numeric v1 / numeric v2):vs
 
 modNum :: [Value] -> IO [Value]
 modNum [] = return []
 modNum vs@[_] = return vs
-modNum (v1:v2:vs) = return $ ValNum (numeric v1 `mod'` numeric v2):vs
+modNum (v2:v1:vs) = return $ ValNum (numeric v1 `mod'` numeric v2):vs
 
 -- Logic
 pushTrue :: [Value] -> IO [Value]
@@ -154,42 +168,42 @@ pushFalse vs = return $ ValBool False:vs
 equals :: [Value] -> IO [Value]
 equals [] = return [ValBool False]
 equals [_] = return [ValBool True]
-equals (v1:v2:vs) = return $ ValBool (v1 == v2):vs
+equals (v2:v1:vs) = return $ ValBool (v1 == v2):vs
 
 notEquals :: [Value] -> IO [Value]
 notEquals [] = return [ValBool False]
 notEquals [_] = return [ValBool True]
-notEquals (v1:v2:vs) = return $ ValBool (v1 /= v2):vs
+notEquals (v2:v1:vs) = return $ ValBool (v1 /= v2):vs
 
 less :: [Value] -> IO [Value]
 less [] = return [ValBool False]
 less [_] = return [ValBool True]
-less (v1:v2:vs) = return $ ValBool (numeric v1 < numeric v2):vs
+less (v2:v1:vs) = return $ ValBool (numeric v1 < numeric v2):vs
 
 greater :: [Value] -> IO [Value]
 greater [] = return [ValBool False]
 greater [_] = return [ValBool True]
-greater (v1:v2:vs) = return $ ValBool (numeric v1 > numeric v2):vs
+greater (v2:v1:vs) = return $ ValBool (numeric v1 > numeric v2):vs
 
 lessEq :: [Value] -> IO [Value]
 lessEq [] = return [ValBool False]
 lessEq [_] = return [ValBool True]
-lessEq (v1:v2:vs) = return $ ValBool (numeric v1 <= numeric v2):vs
+lessEq (v2:v1:vs) = return $ ValBool (numeric v1 <= numeric v2):vs
 
 greaterEq :: [Value] -> IO [Value]
 greaterEq [] = return [ValBool False]
 greaterEq [_] = return [ValBool True]
-greaterEq (v1:v2:vs) = return $ ValBool (numeric v1 >= numeric v2):vs
+greaterEq (v2:v1:vs) = return $ ValBool (numeric v1 >= numeric v2):vs
 
 boolAnd :: [Value] -> IO [Value]
 boolAnd [] = return []
 boolAnd vs@[_] = return vs
-boolAnd (v1:v2:vs) = return $ ValBool (truthy v1 && truthy v2):vs
+boolAnd (v2:v1:vs) = return $ ValBool (truthy v1 && truthy v2):vs
 
 boolOr :: [Value] -> IO [Value]
 boolOr [] = return []
 boolOr vs@[_] = return vs
-boolOr (v1:v2:vs) = return $ ValBool (truthy v1 || truthy v2):vs
+boolOr (v2:v1:vs) = return $ ValBool (truthy v1 || truthy v2):vs
 
 boolNot :: [Value] -> IO [Value]
 boolNot [] = return []
@@ -260,8 +274,10 @@ coreTable = M.fromList $ concatMap (\(names, fn) -> [ (name, Internal fn) | name
   (["⇈", "dup"], dup), -- \upuparrows
   (["∅", "drp"], drp), -- \emptyset
   (["⊢", "fst"], firstStk), -- \vdash
+  (["⊩", "snd"], secondStk), -- \Vdash
   (["⊣", "lst"], lastStk), -- \dashv
   (["⊢!", "pop"], pop),
+  (["⊩!", "hop"], hop),
   (["⊣!", "bot"], bot),
   (["↻", "rot"], rot), -- \circlearrowright
   (["↕", "swp"], swap), -- \updownarrow
@@ -272,6 +288,7 @@ coreTable = M.fromList $ concatMap (\(names, fn) -> [ (name, Internal fn) | name
   (["·", "null"], empty), -- \cdot
   (["⇆", "rev"], rev), -- \leftrightarrows
   (["⇓", "shv"], shove), -- \Downarrow
+  (["⇑", "brg"], bring), -- \Uparrow
   (["+"], add),
   (["-"], sub),
   (["*"], mult),
