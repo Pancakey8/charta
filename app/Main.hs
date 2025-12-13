@@ -8,11 +8,10 @@ import           Interpreter        (runProgram)
 import           IRPasses           (doPasses)
 import           Parser             (TopLevel (..), parseProgram)
 import           System.Environment (getArgs)
+import           System.FilePath    (dropFileName, (</>))
 import           Text.Parsec        (parse)
 import           Traverser          (Grid (Grid), IREmitter (runEmitter),
-                                     traverse, Instruction (Call))
-import System.FilePath ((</>), dropFileName)
-import Debug.Trace (trace)
+                                     Instruction (Call, PushFn), traverse)
 
 data ProgContext = ProgCtx { root :: FilePath, namespace :: [String] }
                  deriving (Show)
@@ -39,9 +38,6 @@ makeProg ctx (FuncDecl (name, argc, body):tls) = do
     Right (_, instrs) -> do
       rest <- makeProg ctx tls
       let instrs' = doPasses instrs
-      putStrLn $ "fn " ++ name ++ " (" ++ show argc ++ "):"
-      mapM_ print instrs'
-      putStrLn "==="
       case rest of
         Nothing -> return Nothing
         Just [] -> return $ Just [Prog (M.singleton name (prefixNS (namespace ctx) name)) $ M.singleton name (argc, instrs')]
@@ -62,6 +58,11 @@ unite (Prog names tbl:ps) = M.foldrWithKey resolve tbl names `M.union` unite ps
                      in (argc, Call canon : is')
       | otherwise = let (_, is') = resolveBody local canon (argc, is)
                      in (argc, Call x : is')
+    resolveBody local canon (argc, PushFn x:is)
+      | x == local = let (_, is') = resolveBody local canon (argc, is)
+                     in (argc, PushFn canon : is')
+      | otherwise = let (_, is') = resolveBody local canon (argc, is)
+                     in (argc, PushFn x : is')
     resolveBody local canon (argc, i:is) = let (_, is') = resolveBody local canon (argc, is)
                                              in (argc, i : is')
 

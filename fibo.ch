@@ -1,3 +1,4 @@
+outdated
 fn fibo (N) {
 → ⇈ 0 = ? ⇈ 1 = ? ⇈ 1 ↕ - fibo ↕ 2 ↕ - fibo +
         ↓       ↓

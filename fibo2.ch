@@ -1,3 +1,4 @@
+outdated
 use "fibo" as f
 
 fn fibo (N) {

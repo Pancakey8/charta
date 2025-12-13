@@ -1,3 +1,4 @@
+outdated
 fn main () {
 → 10 1  swp  - dup    0 < ?
                           ↓

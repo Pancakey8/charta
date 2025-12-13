@@ -1,37 +1,50 @@
 {-# LANGUAGE LambdaCase #-}
 module Core where
 
+import           Data.Char   (ord)
+import           Data.Fixed  (mod')
+import           Data.List   (intercalate, singleton)
 import qualified Data.Map    as M
-import Traverser (Instruction)
-import Parser (num, Item (..), ItemValue (..))
-import Text.Parsec (parse)
-import GHC.Float (double2Int, int2Double)
-import Data.Fixed (mod')
-import Data.List (singleton, intercalate)
-import Data.Char (ord)
+import           GHC.Float   (double2Int, int2Double)
+import           Parser      (Item (..), ItemValue (..), num)
+import           Text.Parsec (parse)
+import           Traverser   (Instruction)
 
 data Function = Defined Int [Instruction]
               | Internal ([Value] -> IO [Value])
+              | Mixed (Context -> Runner -> [Value] -> IO [Value])
+
+instance Eq Function where
+  _ == _ = False
 
 instance Show Function where
-  show (Defined argc instrs) = "(" ++ show argc ++ ")" ++ show instrs
-  show (Internal _)     = "<internal fn>"
+  show (Defined argc instrs) = "<user-defined fn>"
+  show (Internal _)          = "<internal fn>"
+  show (Mixed _)             = "<internal fn>"
 
 type FuncTable = M.Map String Function
+
+data Frame = Frame { prog :: [Instruction], pc :: Int, stack :: [Value] }
+           deriving (Show)
+
+data Context = Ctx { frames :: [Frame], fns :: FuncTable }
+             deriving (Show)
 
 data Value = ValStr String
            | ValNum Double
            | ValBool Bool
            | ValChar Char
            | ValStack [Value]
+           | ValFn Function
            deriving (Show, Eq)
 
 truthy :: Value -> Bool
-truthy (ValStr s) = not $ null s
-truthy (ValNum n) = n /= 0
-truthy (ValBool b) = b
+truthy (ValStr s)    = not $ null s
+truthy (ValNum n)    = n /= 0
+truthy (ValBool b)   = b
 truthy (ValStack vs) = not $ null vs
-truthy (ValChar ch) = ch /= '\0'
+truthy (ValChar ch)  = ch /= '\0'
+truthy (ValFn _)     = True
 
 numeric :: Value -> Double
 numeric (ValNum n) = n
@@ -41,67 +54,69 @@ numeric (ValStr s) = case parse num "" s of
                        _ -> error "Failed conversion string->number"
 numeric (ValChar c) = int2Double $ ord c
 numeric (ValStack _) = error "Failed conversion stack->number"
+numeric (ValFn _) = error "Failed conversion fn->number"
 
 stringified :: Value -> String
-stringified (ValStr s) = s
-stringified (ValChar c) = [c]
-stringified (ValNum n) = show n
-stringified (ValBool b) = if b then "⊤" else "⊥"
+stringified (ValStr s)   = s
+stringified (ValChar c)  = [c]
+stringified (ValNum n)   = show n
+stringified (ValBool b)  = if b then "⊤" else "⊥"
 stringified (ValStack s) = "[" ++ intercalate ", " (map stringified s) ++ "]"
+stringified (ValFn _)    = "<fn>"
 
 -- Stack ops
 dup :: [Value] -> IO [Value]
-dup [] = return []
+dup []     = return []
 dup (v:vs) = return $ v:v:vs
 
 drp :: [Value] -> IO [Value]
-drp [] = return []
+drp []     = return []
 drp (_:vs) = return vs
 
 pop :: [Value] -> IO [Value]
 pop (ValStack (v:vs):vs') = return $ v:ValStack vs:vs'
-pop (ValStr (v:vs):vs') = return $ ValChar v:ValStr vs:vs'
-pop _ = error "Fail: pop"
+pop (ValStr (v:vs):vs')   = return $ ValChar v:ValStr vs:vs'
+pop _                     = error "Fail: pop"
 
 hop :: [Value] -> IO [Value]
 hop (ValStack (v1:v2:vs):vs') = return $ v2:ValStack (v1:vs):vs'
-hop (ValStr (v1:v2:vs):vs') = return $ ValChar v2:ValStr (v1:vs):vs'
-hop _ = error "Fail: hop"
+hop (ValStr (v1:v2:vs):vs')   = return $ ValChar v2:ValStr (v1:vs):vs'
+hop _                         = error "Fail: hop"
 
 firstStk :: [Value] -> IO [Value]
 firstStk (ValStack vs@(v:_):vs') = return $ v:ValStack vs:vs'
-firstStk (ValStr vs@(v:_):vs') = return $ ValChar v:ValStr vs:vs'
-firstStk _ = error "Fail: fst"
+firstStk (ValStr vs@(v:_):vs')   = return $ ValChar v:ValStr vs:vs'
+firstStk _                       = error "Fail: fst"
 
 secondStk :: [Value] -> IO [Value]
 secondStk (ValStack vs@(_:v:_):vs') = return $ v:ValStack vs:vs'
-secondStk (ValStr vs@(_:v:_):vs') = return $ ValChar v:ValStr vs:vs'
-secondStk _ = error "Fail: snd"
+secondStk (ValStr vs@(_:v:_):vs')   = return $ ValChar v:ValStr vs:vs'
+secondStk _                         = error "Fail: snd"
 
 bot :: [Value] -> IO [Value]
 bot (ValStack vs:vs') = return $ last vs:ValStack (init vs):vs'
-bot (ValStr vs:vs') = return $ ValChar (last vs):ValStr (init vs):vs'
-bot _ = error "Fail: bot"
+bot (ValStr vs:vs')   = return $ ValChar (last vs):ValStr (init vs):vs'
+bot _                 = error "Fail: bot"
 
 lastStk :: [Value] -> IO [Value]
 lastStk (ValStack vs:vs') = return $ last vs:ValStack vs:vs'
-lastStk (ValStr vs:vs') = return $ ValChar (last vs):ValStr vs:vs'
-lastStk _ = error "Fail: lst"
+lastStk (ValStr vs:vs')   = return $ ValChar (last vs):ValStr vs:vs'
+lastStk _                 = error "Fail: lst"
 
 swap :: [Value] -> IO [Value]
-swap [] = return []
-swap vs@[_] = return vs
+swap []         = return []
+swap vs@[_]     = return vs
 swap (v1:v2:vs) = return $ v2:v1:vs
 
 rot :: [Value] -> IO [Value]
-rot [] = return []
-rot vs@[_] = return vs
-rot [v1, v2] = return [v2, v1]
+rot []            = return []
+rot vs@[_]        = return vs
+rot [v1, v2]      = return [v2, v1]
 rot (v1:v2:v3:vs) = return $ v3:v1:v2:vs
 
 over :: [Value] -> IO [Value]
-over [] = return []
-over vs@[_] = return vs
+over []         = return []
+over vs@[_]     = return vs
 over (v1:v2:vs) = return $ v2:v1:v2:vs
 
 pack :: [Value] -> IO [Value]
@@ -109,8 +124,8 @@ pack vs = return [ValStack vs]
 
 splat :: [Value] -> IO [Value]
 splat (ValStack stk:vs) = return $ stk ++ vs
-splat (ValStr s:vs) = return $ map ValChar s ++ vs
-splat vs = return vs
+splat (ValStr s:vs)     = return $ map ValChar s ++ vs
+splat vs                = return vs
 
 depth :: [Value] -> IO [Value]
 depth vs = return $ ValNum (int2Double $ length vs):vs
@@ -123,7 +138,7 @@ rev vs = return $ reverse vs
 
 shove :: [Value] -> IO [Value]
 shove (v:vs) = return $ vs ++ [v]
-shove [] = return []
+shove []     = return []
 
 bring :: [Value] -> IO [Value]
 bring [] = return []
@@ -131,14 +146,14 @@ bring vs = return $ last vs : init vs
 
 -- Arithmetic
 add :: [Value] -> IO [Value]
-add [] = return []
-add vs@[_] = return vs
+add []                       = return []
+add vs@[_]                   = return vs
 add (ValStr s2:ValStr s1:vs) = return $ ValStr (s1 ++ s2):vs
-add (v2:v1:vs) = return $ ValNum (numeric v1 + numeric v2):vs
+add (v2:v1:vs)               = return $ ValNum (numeric v1 + numeric v2):vs
 
 sub :: [Value] -> IO [Value]
-sub [] = return []
-sub vs@[_] = return vs
+sub []         = return []
+sub vs@[_]     = return vs
 sub (v2:v1:vs) = return $ ValNum (numeric v1 - numeric v2):vs
 
 mult :: [Value] -> IO [Value]
@@ -149,13 +164,13 @@ mult (v1@(ValStr _):v2@(ValNum _):vs) = mult $ v2:v1:vs
 mult (v2:v1:vs) = return $ ValNum (numeric v1 * numeric v2):vs
 
 div' :: [Value] -> IO [Value]
-div' [] = return []
-div' vs@[_] = return vs
+div' []         = return []
+div' vs@[_]     = return vs
 div' (v2:v1:vs) = return $ ValNum (numeric v1 / numeric v2):vs
 
 modNum :: [Value] -> IO [Value]
-modNum [] = return []
-modNum vs@[_] = return vs
+modNum []         = return []
+modNum vs@[_]     = return vs
 modNum (v2:v1:vs) = return $ ValNum (numeric v1 `mod'` numeric v2):vs
 
 -- Logic
@@ -166,69 +181,69 @@ pushFalse :: [Value] -> IO [Value]
 pushFalse vs = return $ ValBool False:vs
 
 equals :: [Value] -> IO [Value]
-equals [] = return [ValBool False]
-equals [_] = return [ValBool True]
+equals []         = return [ValBool False]
+equals [_]        = return [ValBool True]
 equals (v2:v1:vs) = return $ ValBool (v1 == v2):vs
 
 notEquals :: [Value] -> IO [Value]
-notEquals [] = return [ValBool False]
-notEquals [_] = return [ValBool True]
+notEquals []         = return [ValBool False]
+notEquals [_]        = return [ValBool True]
 notEquals (v2:v1:vs) = return $ ValBool (v1 /= v2):vs
 
 less :: [Value] -> IO [Value]
-less [] = return [ValBool False]
-less [_] = return [ValBool True]
+less []         = return [ValBool False]
+less [_]        = return [ValBool True]
 less (v2:v1:vs) = return $ ValBool (numeric v1 < numeric v2):vs
 
 greater :: [Value] -> IO [Value]
-greater [] = return [ValBool False]
-greater [_] = return [ValBool True]
+greater []         = return [ValBool False]
+greater [_]        = return [ValBool True]
 greater (v2:v1:vs) = return $ ValBool (numeric v1 > numeric v2):vs
 
 lessEq :: [Value] -> IO [Value]
-lessEq [] = return [ValBool False]
-lessEq [_] = return [ValBool True]
+lessEq []         = return [ValBool False]
+lessEq [_]        = return [ValBool True]
 lessEq (v2:v1:vs) = return $ ValBool (numeric v1 <= numeric v2):vs
 
 greaterEq :: [Value] -> IO [Value]
-greaterEq [] = return [ValBool False]
-greaterEq [_] = return [ValBool True]
+greaterEq []         = return [ValBool False]
+greaterEq [_]        = return [ValBool True]
 greaterEq (v2:v1:vs) = return $ ValBool (numeric v1 >= numeric v2):vs
 
 boolAnd :: [Value] -> IO [Value]
-boolAnd [] = return []
-boolAnd vs@[_] = return vs
+boolAnd []         = return []
+boolAnd vs@[_]     = return vs
 boolAnd (v2:v1:vs) = return $ ValBool (truthy v1 && truthy v2):vs
 
 boolOr :: [Value] -> IO [Value]
-boolOr [] = return []
-boolOr vs@[_] = return vs
+boolOr []         = return []
+boolOr vs@[_]     = return vs
 boolOr (v2:v1:vs) = return $ ValBool (truthy v1 || truthy v2):vs
 
 boolNot :: [Value] -> IO [Value]
-boolNot [] = return []
+boolNot []     = return []
 boolNot (v:vs) = return $ ValBool (not $ truthy v):vs
 
 -- Conversions
 asStr :: [Value] -> IO [Value]
-asStr [] = return []
+asStr []     = return []
 asStr (v:vs) = return $ ValStr (stringified v):vs
 
 asNum :: [Value] -> IO [Value]
-asNum [] = return []
+asNum []     = return []
 asNum (v:vs) = return $ ValNum (numeric v):vs
 
 asBool :: [Value] -> IO [Value]
-asBool [] = return []
+asBool []     = return []
 asBool (v:vs) = return $ ValBool (truthy v):vs
 
 ordVal :: [Value] -> IO [Value]
 ordVal (v@(ValChar _):vs) = return $ ValNum (numeric v):vs
-ordVal _ = error "Expected conversion char->int"
+ordVal _                  = error "Expected conversion char->int"
 
 chrVal :: [Value] -> IO [Value]
 chrVal (ValNum n:vs) = return $ ValChar (toEnum $ double2Int n):vs
-chrVal _ = error "Expected conversion int->char"
+chrVal _             = error "Expected conversion int->char"
 
 packStr :: [Value] -> IO [Value]
 packStr [] = return [ValStr ""]
@@ -238,32 +253,52 @@ packStr vs = let (s,vs') = break (\case ValChar _ -> False
 
 isStr :: [Value] -> IO [Value]
 isStr vs@(ValStr _ :_) = return $ ValBool True:vs
-isStr vs = return $ ValBool False:vs
+isStr vs               = return $ ValBool False:vs
 
 isNum :: [Value] -> IO [Value]
 isNum vs@(ValNum _ :_) = return $ ValBool True:vs
-isNum vs = return $ ValBool False:vs
+isNum vs               = return $ ValBool False:vs
 
 isBool :: [Value] -> IO [Value]
 isBool vs@(ValBool _ :_) = return $ ValBool True:vs
-isBool vs = return $ ValBool False:vs
+isBool vs                = return $ ValBool False:vs
 
 isChar :: [Value] -> IO [Value]
 isChar vs@(ValChar _ :_) = return $ ValBool True:vs
-isChar vs = return $ ValBool False:vs
+isChar vs                = return $ ValBool False:vs
 
 isStack :: [Value] -> IO [Value]
 isStack vs@(ValStack _ :_) = return $ ValBool True:vs
-isStack vs = return $ ValBool False:vs
+isStack vs                 = return $ ValBool False:vs
+
+-- Function operations
+type Runner = Context -> IO Context
+
+apply :: Context -> Runner -> [Value] -> IO [Value]
+apply _ _ (ValFn (Internal f):vs) = f vs
+apply ctx runner (ValFn (Mixed f):vs) = f ctx runner vs
+apply ctx runner (ValFn (Defined argc body):vs) = do
+  ctx' <- runner ctx { frames = [ Frame { prog = body, pc = 0, stack = take argc vs } ] }
+  return $ stack (head $ frames ctx') ++ drop argc vs
+apply _ _ _ = error "Apply expected function"
+
+applyLocal :: Context -> Runner -> [Value] -> IO [Value]
+applyLocal _ _ (ValFn (Internal f):ValStack s:vs) = f s >>= \s' -> return $ ValStack s' : vs
+applyLocal ctx runner (ValFn (Mixed f):ValStack s:vs) = f ctx runner s >>= \s' -> return $ ValStack s' : vs
+applyLocal ctx runner (ValFn (Defined argc body):ValStack s:vs) = do
+  ctx' <- runner ctx { frames = [ Frame { prog = body, pc = 0, stack = take argc s } ] }
+  return $ ValStack (stack (head $ frames ctx') ++ drop argc s) : vs
+applyLocal _ _ _ = error "Apply local expected function & stack"
 
 -- I/O
 put :: [Value] -> IO [Value]
-put [] = return []
-put (ValStr s:vs) = putStrLn s >> return vs
-put (ValChar c:vs) = putStrLn [c] >> return vs
-put (ValBool True:vs) = putStrLn "⊤" >> return vs
-put (ValBool False:vs) = putStrLn "⊥" >> return vs
-put (ValNum n:vs) = print n >> return vs
+put []                  = return []
+put (ValStr s:vs)       = putStrLn s >> return vs
+put (ValChar c:vs)      = putStrLn [c] >> return vs
+put (ValBool True:vs)   = putStrLn "⊤" >> return vs
+put (ValBool False:vs)  = putStrLn "⊥" >> return vs
+put (ValNum n:vs)       = print n >> return vs
+put (v@(ValFn _):vs)    = print (stringified v) >> return vs
 put (v@(ValStack _):vs) = print (stringified v) >> return vs
 
 debug :: [Value] -> IO [Value]
@@ -318,4 +353,7 @@ coreTable = M.fromList $ concatMap (\(names, fn) -> [ (name, Internal fn) | name
   (["¿stk", "isStk"], isStack),
   (["put"], put),
   (["⚠", "dbg"], debug) -- \warning
+  ] ++ concatMap (\(names, fn) -> [ (name, Mixed fn) | name <- names ]) [
+  (["ap"], apply),
+  (["sap"], applyLocal)
   ]

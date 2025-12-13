@@ -31,6 +31,7 @@ data Instruction = Call String
                  | PushNum Double
                  | PushStr String
                  | PushChar Char
+                 | PushFn String
                  | Label String
                  | PosMarker Pos Int -- Pos, length
                  | Goto String
@@ -137,6 +138,9 @@ traverse grid initPos = void $ go initPos (1, 0) S.empty
                 go pos' dir emitted'
               CharLit c -> do
                 emit $ PushChar c
+                go pos' dir emitted'
+              FnRef s -> do 
+                emit $ PushFn s
                 go pos' dir emitted'
               Sym s -> do
                 emit $ Call s

@@ -1,3 +1,4 @@
+outdated
 fn beers (ns) {
 ↓
 ⋮

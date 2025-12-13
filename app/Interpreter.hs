@@ -8,12 +8,6 @@ import           Data.Maybe  (fromJust)
 import           Debug.Trace (trace)
 import           Traverser   (Instruction (..))
 
-data Frame = Frame { prog :: [Instruction], pc :: Int, stack :: [Value] }
-           deriving (Show)
-
-data Context = Ctx { frames :: [Frame], fns :: FuncTable }
-             deriving (Show)
-
 run :: Context -> IO Context
 run ctx = -- trace (show ctx) $
   case frames ctx of
@@ -24,7 +18,7 @@ run ctx = -- trace (show ctx) $
          then -- trace (show f) $
            case fs of
              f':fs' -> run ctx { frames = f' { pc = pc f' + 1, stack = stack f ++ stack f' } : fs' }
-             []    -> run ctx { frames = [] }
+             []    -> return ctx
          else step instr ctx >>= run
 
 advance :: Context -> IO Context
@@ -50,12 +44,16 @@ step i ctx = -- trace (show $ stack ctx) $
                                                                      : fs }
                        Internal fn -> fn (stack $ head $ frames ctx) >>= \c -> advance $
                                                                                modifyStack ctx (const c)
+                       Mixed fn -> fn ctx run (stack $ head $ frames ctx) >>=
+                                   \c -> advance $ modifyStack ctx (const c)
 
     PushNum n     -> advance $ modifyStack ctx $ \stk -> ValNum n : stk
 
     PushStr s     -> advance $ modifyStack ctx $ \stk -> ValStr s : stk
 
     PushChar c    -> advance $ modifyStack ctx $ \stk -> ValChar c : stk
+
+    PushFn f -> advance $ modifyStack ctx $ \stk -> ValFn (fns ctx M.! f) : stk
 
     Label _       -> advance ctx
 
