@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 module Core where
 
 import qualified Data.Map    as M
@@ -7,6 +8,7 @@ import Text.Parsec (parse)
 import GHC.Float (double2Int, int2Double)
 import Data.Fixed (mod')
 import Data.List (singleton, intercalate)
+import Data.Char (ord)
 
 data Function = Defined Int [Instruction]
               | Internal ([Value] -> IO [Value])
@@ -20,6 +22,7 @@ type FuncTable = M.Map String Function
 data Value = ValStr String
            | ValNum Double
            | ValBool Bool
+           | ValChar Char
            | ValStack [Value]
            deriving (Show, Eq)
 
@@ -28,6 +31,7 @@ truthy (ValStr s) = not $ null s
 truthy (ValNum n) = n /= 0
 truthy (ValBool b) = b
 truthy (ValStack vs) = not $ null vs
+truthy (ValChar ch) = ch /= '\0'
 
 numeric :: Value -> Double
 numeric (ValNum n) = n
@@ -35,10 +39,12 @@ numeric (ValBool b) = if b then 1.0 else 0.0
 numeric (ValStr s) = case parse num "" s of
                        Right Item { val = ItNum n } -> n
                        _ -> error "Failed conversion string->number"
+numeric (ValChar c) = int2Double $ ord c
 numeric (ValStack _) = error "Failed conversion stack->number"
 
 stringified :: Value -> String
 stringified (ValStr s) = s
+stringified (ValChar c) = [c]
 stringified (ValNum n) = show n
 stringified (ValBool b) = if b then "⊤" else "⊥"
 stringified (ValStack s) = "[" ++ intercalate ", " (map stringified s) ++ "]"
@@ -48,9 +54,29 @@ dup :: [Value] -> IO [Value]
 dup [] = return []
 dup (v:vs) = return $ v:v:vs
 
+drp :: [Value] -> IO [Value]
+drp [] = return []
+drp (_:vs) = return vs
+
 pop :: [Value] -> IO [Value]
-pop [] = return []
-pop (_:vs) = return vs
+pop (ValStack (v:vs):vs') = return $ v:ValStack vs:vs'
+pop (ValStr (v:vs):vs') = return $ ValChar v:ValStr vs:vs'
+pop _ = error "Fail: pop"
+
+firstStk :: [Value] -> IO [Value]
+firstStk (ValStack vs@(v:_):vs') = return $ v:ValStack vs:vs'
+firstStk (ValStr vs@(v:_):vs') = return $ ValChar v:ValStr vs:vs'
+firstStk _ = error "Fail: fst"
+
+bot :: [Value] -> IO [Value]
+bot (ValStack vs:vs') = return $ last vs:ValStack (init vs):vs'
+bot (ValStr vs:vs') = return $ ValChar (last vs):ValStr (init vs):vs'
+bot _ = error "Fail: bot"
+
+lastStk :: [Value] -> IO [Value]
+lastStk (ValStack vs:vs') = return $ last vs:ValStack vs:vs'
+lastStk (ValStr vs:vs') = return $ ValChar (last vs):ValStr vs:vs'
+lastStk _ = error "Fail: lst"
 
 swap :: [Value] -> IO [Value]
 swap [] = return []
@@ -73,6 +99,7 @@ pack vs = return [ValStack vs]
 
 splat :: [Value] -> IO [Value]
 splat (ValStack stk:vs) = return $ stk ++ vs
+splat (ValStr s:vs) = return $ map ValChar s ++ vs
 splat vs = return vs
 
 depth :: [Value] -> IO [Value]
@@ -80,6 +107,13 @@ depth vs = return $ ValNum (int2Double $ length vs):vs
 
 empty :: [Value] -> IO [Value]
 empty vs = return $ ValBool (null vs):vs
+
+rev :: [Value] -> IO [Value]
+rev vs = return $ reverse vs
+
+shove :: [Value] -> IO [Value]
+shove (v:vs) = return $ vs ++ [v]
+shove [] = return []
 
 -- Arithmetic
 add :: [Value] -> IO [Value]
@@ -174,6 +208,20 @@ asBool :: [Value] -> IO [Value]
 asBool [] = return []
 asBool (v:vs) = return $ ValBool (truthy v):vs
 
+ordVal :: [Value] -> IO [Value]
+ordVal (v@(ValChar _):vs) = return $ ValNum (numeric v):vs
+ordVal _ = error "Expected conversion char->int"
+
+chrVal :: [Value] -> IO [Value]
+chrVal (ValNum n:vs) = return $ ValChar (toEnum $ double2Int n):vs
+chrVal _ = error "Expected conversion int->char"
+
+packStr :: [Value] -> IO [Value]
+packStr [] = return [ValStr ""]
+packStr vs = let (s,vs') = break (\case ValChar _ -> False
+                                        _ -> True) vs
+             in return $ ValStr [c | ValChar c <- s]:vs'
+
 isStr :: [Value] -> IO [Value]
 isStr vs@(ValStr _ :_) = return $ ValBool True:vs
 isStr vs = return $ ValBool False:vs
@@ -186,6 +234,10 @@ isBool :: [Value] -> IO [Value]
 isBool vs@(ValBool _ :_) = return $ ValBool True:vs
 isBool vs = return $ ValBool False:vs
 
+isChar :: [Value] -> IO [Value]
+isChar vs@(ValChar _ :_) = return $ ValBool True:vs
+isChar vs = return $ ValBool False:vs
+
 isStack :: [Value] -> IO [Value]
 isStack vs@(ValStack _ :_) = return $ ValBool True:vs
 isStack vs = return $ ValBool False:vs
@@ -194,10 +246,11 @@ isStack vs = return $ ValBool False:vs
 put :: [Value] -> IO [Value]
 put [] = return []
 put (ValStr s:vs) = putStrLn s >> return vs
+put (ValChar c:vs) = putStrLn [c] >> return vs
 put (ValBool True:vs) = putStrLn "⊤" >> return vs
 put (ValBool False:vs) = putStrLn "⊥" >> return vs
 put (ValNum n:vs) = print n >> return vs
-put (ValStack s:vs) = mapM_ (put . singleton) s >> return vs
+put (v@(ValStack _):vs) = print (stringified v) >> return vs
 
 debug :: [Value] -> IO [Value]
 debug vs = print vs >> return vs
@@ -205,14 +258,20 @@ debug vs = print vs >> return vs
 coreTable :: FuncTable
 coreTable = M.fromList $ concatMap (\(names, fn) -> [ (name, Internal fn) | name <- names ]) [
   (["⇈", "dup"], dup), -- \upuparrows
-  (["∅", "pop"], pop), -- \emptyset
+  (["∅", "drp"], drp), -- \emptyset
+  (["⊢", "fst"], firstStk), -- \vdash
+  (["⊣", "lst"], lastStk), -- \dashv
+  (["⊢!", "pop"], pop),
+  (["⊣!", "bot"], bot),
   (["↻", "rot"], rot), -- \circlearrowright
   (["↕", "swp"], swap), -- \updownarrow
-  (["⤴", "ovr"], over), -- arrow pointing right then curving up
+  (["⊼", "ovr"], over), -- \barwedge
   (["▭", "pack"], pack), -- \rect
   (["⋮", "spt"], splat), -- \vdots
   (["≡", "dpt"], depth), -- \equiv
   (["·", "null"], empty), -- \cdot
+  (["⇆", "rev"], rev), -- \leftrightarrows
+  (["⇓", "shv"], shove), -- \Downarrow
   (["+"], add),
   (["-"], sub),
   (["*"], mult),
@@ -232,9 +291,13 @@ coreTable = M.fromList $ concatMap (\(names, fn) -> [ (name, Internal fn) | name
   (["str"], asStr),
   (["num"], asNum),
   (["bool"], asBool),
+  (["ord"], ordVal),
+  (["chr"], chrVal),
+  (["▭s", "packs"], packStr),
   (["¿str", "isStr"], isStr),
   (["¿num", "isNum"], isNum),
   (["¿bool", "isBool"], isBool),
+  (["¿char", "isChar"], isChar),
   (["¿stk", "isStk"], isStack),
   (["put"], put),
   (["⚠", "dbg"], debug) -- \warning

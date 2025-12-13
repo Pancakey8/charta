@@ -2,9 +2,10 @@ module Traverser where
 
 import           Control.Monad (void)
 import           Data.List     (find)
-import           Data.Maybe    (isJust, fromJust)
+import           Data.Maybe    (isJust, fromJust, maybeToList)
 import qualified Data.Set      as S
 import           Parser        (Item (..), ItemValue (..))
+import Debug.Trace (trace)
 
 newtype Grid = Grid [[Item]]
              deriving (Show)
@@ -29,6 +30,7 @@ c .* (x, y) = (c * x, c * y)
 data Instruction = Call String
                  | PushNum Double
                  | PushStr String
+                 | PushChar Char
                  | Label String
                  | PosMarker Pos Int -- Pos, length
                  | Goto String
@@ -78,8 +80,22 @@ showIR m =
 
 branches :: Grid -> Pos -> Direction -> [(Direction, Pos)]
 branches grid (x, y) dir
-  | fst dir /= 0 = [ ((0, dy), (x, y + dy)) | dy <- [-1, 1], isJust (grid ! (x, y + dy)) ]
-  | snd dir /= 0 = [ ((dx, 0), (x + dx, y)) | dx <- [-1, 1], isJust (grid ! (x + dx, y)) ]
+  | fst dir /= 0 = concat [
+      maybeToList $ do
+          Item { val = DirUp } <- grid ! (x, y - 1)
+          return ((0, -1), (x, y - 1))
+      , maybeToList $ do
+          Item { val = DirDown } <- grid ! (x, y + 1)
+          return ((0, 1), (x, y + 1))
+      ]
+  | snd dir /= 0 = concat [
+      maybeToList $ do
+          Item { val = DirLeft } <- grid ! (x - 1, y)
+          return ((-1, 0), (x - 1, y))
+      , maybeToList $ do
+          Item { val = DirRight } <- grid ! (x + 1, y)
+          return ((1, 0), (x + 1, y))
+      ]
   | otherwise = error "Invalid direction"
 
 traverse :: Grid -> Pos -> IREmitter ()
@@ -119,6 +135,9 @@ traverse grid initPos = void $ go initPos (1, 0) S.empty
               StrLit s -> do
                 emit $ PushStr s
                 go pos' dir emitted'
+              CharLit c -> do
+                emit $ PushChar c
+                go pos' dir emitted'
               Sym s -> do
                 emit $ Call s
                 go pos' dir emitted'
@@ -131,7 +150,7 @@ traverse grid initPos = void $ go initPos (1, 0) S.empty
                     emit $ Label branchLabel
                     emittedSuc <- go success dir' emitted'
                     return $ emittedFail `S.union` emittedSuc
-                  bs -> do
+                  bs -> trace (show bs) $ do
                     throwEmit $ Err { posn = pos, what = "Branch expects 1 outgoing direction, found " ++ show (length bs) }
                     return emitted'
               LineEnd -> error "LineEnd unreachable at traversal"

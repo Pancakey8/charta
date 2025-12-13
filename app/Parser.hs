@@ -15,6 +15,7 @@ data ItemValue = ItNum Double
                | Branch
                | Sym String
                | StrLit String
+               | CharLit Char
                | Space
                | LineEnd
                deriving (Show, Eq)
@@ -44,7 +45,7 @@ specials = do
 
 sym :: Parser Item
 sym = do
-  symStr <- many1 $ satisfy (\c -> not (isSpace c) && c `notElem` "←→↑↓?{}()")
+  symStr <- many1 $ satisfy (\c -> not (isSpace c) && c `notElem` "←→↑↓?{}()#")
   return Item { len = length symStr, val = Sym symStr }
 
 space :: Parser Item
@@ -60,13 +61,21 @@ strLit = do
   end <- getPosition
   return Item { len = sourceColumn end - sourceColumn start, val = StrLit s }
 
+charLit :: Parser Item
+charLit = do
+  start <- getPosition
+  void $ char '#'
+  c <- anyChar
+  end <- getPosition
+  return Item { len = sourceColumn end - sourceColumn start, val = CharLit c }
+
 lineBreak :: Parser Item
 lineBreak = do
   void $ char '\n'
   return Item { len = 0, val = LineEnd }
 
 parse1 :: Parser Item
-parse1 = num <|> strLit <|> specials <|> lineBreak <|> space <|> sym
+parse1 = num <|> strLit <|> charLit <|> specials <|> lineBreak <|> space <|> sym
 
 grid :: Parser [[Item]]
 grid = do

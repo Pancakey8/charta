@@ -1,12 +1,12 @@
 module Interpreter where
 
-import qualified Data.Map   as M
+import qualified Data.Map    as M
 
 import           Core
-import           Data.List  (find)
-import           Data.Maybe (fromJust)
-import           Traverser  (Instruction (..))
-import Debug.Trace (trace)
+import           Data.List   (find)
+import           Data.Maybe  (fromJust)
+import           Debug.Trace (trace)
+import           Traverser   (Instruction (..))
 
 data Frame = Frame { prog :: [Instruction], pc :: Int, stack :: [Value] }
            deriving (Show)
@@ -34,7 +34,7 @@ advance ctx =
     []     -> return ctx
 
 headStack :: Context -> Value
-headStack = head . stack . head . frames 
+headStack = head . stack . head . frames
 
 modifyStack :: Context -> ([Value] -> [Value]) -> Context
 modifyStack ctx m = let f:fs = frames ctx
@@ -54,6 +54,8 @@ step i ctx = -- trace (show $ stack ctx) $
     PushNum n     -> advance $ modifyStack ctx $ \stk -> ValNum n : stk
 
     PushStr s     -> advance $ modifyStack ctx $ \stk -> ValStr s : stk
+
+    PushChar c    -> advance $ modifyStack ctx $ \stk -> ValChar c : stk
 
     Label _       -> advance ctx
 

@@ -39,6 +39,9 @@ makeProg ctx (FuncDecl (name, argc, body):tls) = do
     Right (_, instrs) -> do
       rest <- makeProg ctx tls
       let instrs' = doPasses instrs
+      putStrLn $ "fn " ++ name ++ " (" ++ show argc ++ "):"
+      mapM_ print instrs'
+      putStrLn "==="
       case rest of
         Nothing -> return Nothing
         Just [] -> return $ Just [Prog (M.singleton name (prefixNS (namespace ctx) name)) $ M.singleton name (argc, instrs')]
