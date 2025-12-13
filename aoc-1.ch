@@ -30,7 +30,7 @@ fn rotLines (str) {
 }
 
 fn solve (rotations current count) {
-→ ▭ ⇈ ⋮ "\nROT:" put put "CURRENT:" put put "COUNT:" put put ⋮ ↓ {# Print steps #}
+↓ ▭ ⇈ ⋮ "\nROT:" put put "CURRENT:" put put "COUNT:" put put ⋮ ↓ {# Print steps #}
 ↓                  {# Sum top mod 100 #}                       ←
 → [≡] sap ⊢! 0 = ? ⊢! ↻   + 100 % ⇈ 0 = ?      → ↕ solve
                  ↓                      ↓
@@ -39,8 +39,8 @@ fn solve (rotations current count) {
    {# Exit #}                           →+ ↻ ↻ ↑
 }
 
+use "aoc-1-input"
+
 fn main () {
-↓
-"L68\nL30\nR48\nL5\nR60\nL55\nL1\nL99\nR14\nL82\n"
-→ lines rotLines 0 50 ↻ solve "\nAnswer:" put put
+→ input lines rotLines 0 50 ↻ solve "\nAnswer:" put put
 }
