@@ -3,6 +3,7 @@ module IRPasses where
 
 import           Data.Maybe (mapMaybe)
 import           Traverser
+import qualified Data.Map as M
 
 -- Cleans up PosMarker & GotoPos
 foregoPos :: [Instruction] -> [Instruction]
@@ -18,5 +19,21 @@ foregoPos instrs = concatMap (\case
                        GotoPos p -> Just p
                        _ -> Nothing) instrs
 
-doPasses :: [Instruction] -> [Instruction]
-doPasses = foregoPos
+--                Function name -> Argument count, instructions
+type Program = M.Map String (Int, [Instruction])
+--                     local -> canonical
+data BuildUnit = Unit (M.Map String String) Program
+
+-- TODO: Bring back a doPasses function to handle everything:
+canonicalizeNames :: BuildUnit -> Program
+canonicalizeNames (Unit names fns) = M.foldrWithKey resolve fns names
+  where
+    resolve local canon tbl =
+      let tbl' = M.insert canon (tbl M.! local) $ M.delete local tbl
+      in M.map (\(argc, body) -> (argc, resolveBody local canon body)) tbl'
+    resolveBody local canon [] = []
+    resolveBody local canon (i:is) = rewrite local canon i : resolveBody local canon is
+    rewrite local canon (Call c) = if c == local then Call canon else Call c
+    rewrite local canon (PushFn c) = if c == local then PushFn canon else PushFn c
+    rewrite _ _ x = x
+

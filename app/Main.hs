@@ -5,7 +5,7 @@ import           Core               (FuncTable, Function (..))
 import           Data.Functor       (void)
 import qualified Data.Map           as M
 import           Interpreter        (runProgram)
-import           IRPasses           (doPasses)
+import           IRPasses           
 import           Parser             (TopLevel (..), parseProgram)
 import           System.Environment (getArgs)
 import           System.FilePath    (dropFileName, (</>))
@@ -13,16 +13,14 @@ import           Text.Parsec        (parse)
 import           Traverser          (Grid (Grid), IREmitter (runEmitter),
                                      Instruction (Call, PushFn), traverse)
 
+-- TODO: Find a place for this logic:
 data ProgContext = ProgCtx { root :: FilePath, namespace :: [String] }
                  deriving (Show)
-
-data Prog = Prog (M.Map String String) (M.Map String (Int, [Instruction]))
-          deriving (Show)
 
 prefixNS :: [String] -> String -> String
 prefixNS stk name = foldl (\nm a -> a ++ "." ++ nm) name stk  -- Concats in reverse!!
 
-makeProg :: ProgContext -> [TopLevel] -> IO (Maybe [Prog])
+makeProg :: ProgContext -> [TopLevel] -> IO (Maybe [BuildUnit])
 makeProg _ [] = return $ Just []
 makeProg ctx (UseDrv s ns:tls) = do
   res <- parse parseProgram "" <$> readFile (root ctx </> (s ++ ".ch"))
@@ -37,34 +35,13 @@ makeProg ctx (FuncDecl (name, argc, body):tls) = do
     Left e -> print e >> return Nothing
     Right (_, instrs) -> do
       rest <- makeProg ctx tls
-      let instrs' = doPasses instrs
+      let instrs' = foregoPos instrs
       case rest of
         Nothing -> return Nothing
-        Just [] -> return $ Just [Prog (M.singleton name (prefixNS (namespace ctx) name)) $ M.singleton name (argc, instrs')]
-        Just ((Prog syms tbl):progs) -> let syms' = M.insert name (prefixNS (namespace ctx) name) syms
+        Just [] -> return $ Just [Unit (M.singleton name (prefixNS (namespace ctx) name)) $ M.singleton name (argc, instrs')]
+        Just ((Unit syms tbl):progs) -> let syms' = M.insert name (prefixNS (namespace ctx) name) syms
                                             tbl' = M.insert name (argc, instrs') tbl
-                                        in return $ Just $ Prog syms' tbl':progs
-
-unite :: [Prog] -> M.Map String (Int, [Instruction])
-unite [] = M.empty
-unite (Prog names tbl:ps) = M.foldrWithKey resolve tbl names `M.union` unite ps
-  where
-    resolve local canon tbl =
-      let tbl' = M.insert canon (tbl M.! local) $ M.delete local tbl
-      in M.map (resolveBody local canon) tbl'
-    resolveBody _ _ (argc, []) = (argc, [])
-    resolveBody local canon (argc, Call x:is)
-      | x == local = let (_, is') = resolveBody local canon (argc, is)
-                     in (argc, Call canon : is')
-      | otherwise = let (_, is') = resolveBody local canon (argc, is)
-                     in (argc, Call x : is')
-    resolveBody local canon (argc, PushFn x:is)
-      | x == local = let (_, is') = resolveBody local canon (argc, is)
-                     in (argc, PushFn canon : is')
-      | otherwise = let (_, is') = resolveBody local canon (argc, is)
-                     in (argc, PushFn x : is')
-    resolveBody local canon (argc, i:is) = let (_, is') = resolveBody local canon (argc, is)
-                                             in (argc, i : is')
+                                        in return $ Just $ Unit syms' tbl':progs
 
 main :: IO ()
 main = do
@@ -82,4 +59,5 @@ main = do
           res <- makeProg ProgCtx { root = root', namespace = [] } tls
           case res of
             Nothing  -> return ()
-            Just prog -> void $ runProgram $ M.map (uncurry Defined) $ unite prog
+            Just progs -> void $ runProgram $ M.map (uncurry Defined) $
+                          foldl M.union M.empty $ map canonicalizeNames progs
