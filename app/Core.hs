@@ -299,7 +299,7 @@ put (ValBool True:vs)   = putStrLn "⊤" >> return vs
 put (ValBool False:vs)  = putStrLn "⊥" >> return vs
 put (ValNum n:vs)       = print n >> return vs
 put (v@(ValFn _):vs)    = print (stringified v) >> return vs
-put (v@(ValStack _):vs) = print (stringified v) >> return vs
+put (v@(ValStack _):vs) = putStrLn (stringified v) >> return vs
 
 debug :: [Value] -> IO [Value]
 debug vs = print vs >> return vs
@@ -354,6 +354,6 @@ coreTable = M.fromList $ concatMap (\(names, fn) -> [ (name, Internal fn) | name
   (["put"], put),
   (["⚠", "dbg"], debug) -- \warning
   ] ++ concatMap (\(names, fn) -> [ (name, Mixed fn) | name <- names ]) [
-  (["ap"], apply),
-  (["sap"], applyLocal)
+  (["∘", "ap"], apply), -- \circ
+  (["⊡", "sap"], applyLocal) -- \dotsquare
   ]
