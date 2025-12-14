@@ -10,7 +10,7 @@ fn lines' (str) {
 
 fn lines (str) {
 ↓ {# Wrapper around recursion #}
-→ ⋮ ▭ lines' ⇆ ▭
+→ lines' ⇆ ▭
 }
 
 fn mkRot (str) {
@@ -22,16 +22,15 @@ fn mkRot (str) {
 
 fn rotLines (str) {
 ↓ {# Loop for each line #}
-→ [≡] sap ⊢! →               ⇈ 0 >      ? ∅
-                                        ↓
-                                        1
-                                        -
-             ↑ ↕ sap [⇓] sap [mkRot] ↕  ←
+→ [≡] sap ⊢! →           ⇈ 0 >      ? ∅
+                                    ↓
+                                    1
+                                    -
+             ↑ ↕ ⊡ [⇓] ⊡ [mkRot] ↕  ←
 }
 
 fn solve (rotations current count) {
-↓ ▭ ⇈ ⋮ "\nROT:" put put "CURRENT:" put put "COUNT:" put put ⋮ ↓ {# Print steps #}
-↓                  {# Sum top mod 100 #}                       ←
+↓                  {# Sum top mod 100 #}                       
 → [≡] sap ⊢! 0 = ? ⊢! ↻   + 100 % ⇈ 0 = ?      → ↕ solve
                  ↓                      ↓
                  ∅                      ↻ {# Inc. count if current=0 #}
@@ -42,5 +41,5 @@ fn solve (rotations current count) {
 use "aoc-1-input"
 
 fn main () {
-→ input lines rotLines 0 50 ↻ solve "\nAnswer:" put put
+→ input lines rotLines 0 50 ↻ solve "Answer:" put put
 }

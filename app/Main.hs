@@ -1,17 +1,17 @@
 module Main (main) where
 
 import           Control.Monad      (liftM2)
-import           Core               (FuncTable, Function (..))
+import           Core               (Function (..))
 import           Data.Functor       (void)
 import qualified Data.Map           as M
 import           Interpreter        (runProgram)
-import           IRPasses           
+import           IRPasses
 import           Parser             (TopLevel (..), parseProgram)
 import           System.Environment (getArgs)
 import           System.FilePath    (dropFileName, (</>))
 import           Text.Parsec        (parse)
 import           Traverser          (Grid (Grid), IREmitter (runEmitter),
-                                     Instruction (Call, PushFn), traverse)
+                                     traverse)
 
 -- TODO: Find a place for this logic:
 data ProgContext = ProgCtx { root :: FilePath, namespace :: [String] }
@@ -56,8 +56,8 @@ main = do
       case res of
         Left e -> print e
         Right tls -> do
-          res <- makeProg ProgCtx { root = root', namespace = [] } tls
-          case res of
+          res' <- makeProg ProgCtx { root = root', namespace = [] } tls
+          case res' of
             Nothing  -> return ()
             Just progs -> void $ runProgram $ M.map (uncurry Defined) $
                           foldl M.union M.empty $ map canonicalizeNames progs

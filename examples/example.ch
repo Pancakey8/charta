@@ -3,12 +3,12 @@ fn fibo (N) {
         ↓       ↓
 }
 
-fn all1 (stack fn) {
-→ ↕ [≡] sap ⊢! ⇈ 0 >                  ? ∅
-                                      ↓
-                                      1
-               ↕                      -
-               ↑ sap [⇓] sap ⇓ ⇈ ⇑ ↕  ←
+fn all1 (fn stack) {
+→ ↕ [≡] sap ⊢! ⇈ 0 >               ? ∅
+                                   ↓
+                                   1
+               ↕                   -
+               ↑  ⊡ [⇓] ⊡ ⇓ ⇈ ⇑ ↕  ←
 }
 
 fn main () {

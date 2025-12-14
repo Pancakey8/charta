@@ -31,7 +31,7 @@ canonicalizeNames (Unit names fns) = M.foldrWithKey resolve fns names
     resolve local canon tbl =
       let tbl' = M.insert canon (tbl M.! local) $ M.delete local tbl
       in M.map (\(argc, body) -> (argc, resolveBody local canon body)) tbl'
-    resolveBody local canon [] = []
+    resolveBody _ _ [] = []
     resolveBody local canon (i:is) = rewrite local canon i : resolveBody local canon is
     rewrite local canon (Call c) = if c == local then Call canon else Call c
     rewrite local canon (PushFn c) = if c == local then PushFn canon else PushFn c

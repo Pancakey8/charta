@@ -2,10 +2,10 @@ module Traverser where
 
 import           Control.Monad (void)
 import           Data.List     (find)
-import           Data.Maybe    (isJust, fromJust, maybeToList)
+import           Data.Maybe    (fromJust, maybeToList)
 import qualified Data.Set      as S
+import           Debug.Trace   (trace)
 import           Parser        (Item (..), ItemValue (..))
-import Debug.Trace (trace)
 
 newtype Grid = Grid [[Item]]
              deriving (Show)
@@ -107,7 +107,7 @@ traverse grid initPos = void $ go initPos (1, 0) S.empty
       | pos `S.member` emitted = do
           let pos' = pos `move` (if fst dir /= 0 then len item .* dir else dir)
               item = fromJust $ grid ! pos -- Must succeed since we met this pos
-            in if val item == Space 
+            in if val item == Space
                then go pos' dir emitted
                else do
                  emit $ GotoPos pos
@@ -139,7 +139,7 @@ traverse grid initPos = void $ go initPos (1, 0) S.empty
               CharLit c -> do
                 emit $ PushChar c
                 go pos' dir emitted'
-              FnRef s -> do 
+              FnRef s -> do
                 emit $ PushFn s
                 go pos' dir emitted'
               Sym s -> do

@@ -58,7 +58,7 @@ comment :: Parser Item
 comment = do
   start <- getPosition
   void $ string "{#"
-  sp <- manyTill anyChar $ string "#}"
+  void $ manyTill (satisfy (`notElem` "\r\n")) $ string "#}"
   end <- getPosition
   return Item { len = sourceColumn end - sourceColumn start, val = Space }
 
@@ -76,9 +76,9 @@ strLit = do
   return Item { len = sourceColumn end - sourceColumn start, val = StrLit s }
 
 charP :: Parser Char
-charP = anyChar >>= \c -> if c == '\\'
-                          then escape <$> anyChar
-                          else return c
+charP = satisfy (`notElem` "\r\n") >>= \c -> if c == '\\'
+                                             then escape <$> anyChar
+                                             else return c
 
 charLit :: Parser Item
 charLit = do
@@ -148,8 +148,8 @@ useDrv = do
   ns <- option Nothing $ do
     void $ string "as"
     spaces
-    Item { val = Sym s } <- sym
-    return $ Just s
+    Item { val = Sym ns' } <- sym
+    return $ Just ns'
   return $ UseDrv s ns
 
 topLevel :: Parser TopLevel

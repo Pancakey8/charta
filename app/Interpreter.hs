@@ -49,7 +49,7 @@ step i ctx = -- trace (show $ stack ctx) $
 
     PushNum n     -> advance $ modifyStack ctx $ \stk -> ValNum n : stk
 
-    PushStr s     -> advance $ modifyStack ctx $ \stk -> ValStr s : stk
+    PushStr s     -> advance $ modifyStack ctx $ \stk -> ValStack (map ValChar s) : stk
 
     PushChar c    -> advance $ modifyStack ctx $ \stk -> ValChar c : stk
 

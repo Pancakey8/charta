@@ -3,8 +3,9 @@ module Core where
 
 import           Data.Char   (ord)
 import           Data.Fixed  (mod')
-import           Data.List   (intercalate, singleton)
+import           Data.List   (intercalate)
 import qualified Data.Map    as M
+import           Data.Maybe  (isJust)
 import           GHC.Float   (double2Int, int2Double)
 import           Parser      (Item (..), ItemValue (..), num)
 import           Text.Parsec (parse)
@@ -18,7 +19,7 @@ instance Eq Function where
   _ == _ = False
 
 instance Show Function where
-  show (Defined argc instrs) = "<user-defined fn>"
+  show (Defined _ _) = "<user-defined fn>"
   show (Internal _)          = "<internal fn>"
   show (Mixed _)             = "<internal fn>"
 
@@ -30,8 +31,7 @@ data Frame = Frame { prog :: [Instruction], pc :: Int, stack :: [Value] }
 data Context = Ctx { frames :: [Frame], fns :: FuncTable }
              deriving (Show)
 
-data Value = ValStr String
-           | ValNum Double
+data Value = ValNum Double
            | ValBool Bool
            | ValChar Char
            | ValStack [Value]
@@ -39,29 +39,37 @@ data Value = ValStr String
            deriving (Show, Eq)
 
 truthy :: Value -> Bool
-truthy (ValStr s)    = not $ null s
 truthy (ValNum n)    = n /= 0
 truthy (ValBool b)   = b
 truthy (ValStack vs) = not $ null vs
 truthy (ValChar ch)  = ch /= '\0'
 truthy (ValFn _)     = True
 
+maybeString :: [Value] -> Maybe String
+maybeString = mapM (\case
+                       ValChar c -> Just c
+                       _ -> Nothing)
+
 numeric :: Value -> Double
 numeric (ValNum n) = n
 numeric (ValBool b) = if b then 1.0 else 0.0
-numeric (ValStr s) = case parse num "" s of
-                       Right Item { val = ItNum n } -> n
-                       _ -> error "Failed conversion string->number"
 numeric (ValChar c) = int2Double $ ord c
-numeric (ValStack _) = error "Failed conversion stack->number"
+numeric (ValStack s) =
+  case maybeString s of
+    Just str -> case parse num "" str of
+                  Right Item { val = ItNum n } -> n
+                  _ -> error "Failed conversion stack->number"
+    Nothing -> error "Failed conversion stack->number"
 numeric (ValFn _) = error "Failed conversion fn->number"
 
 stringified :: Value -> String
-stringified (ValStr s)   = s
 stringified (ValChar c)  = [c]
 stringified (ValNum n)   = show n
 stringified (ValBool b)  = if b then "⊤" else "⊥"
-stringified (ValStack s) = "[" ++ intercalate ", " (map stringified s) ++ "]"
+stringified (ValStack s) =
+  case maybeString s of
+    Just str -> str
+    Nothing  -> "[" ++ intercalate ", " (map stringified s) ++ "]"
 stringified (ValFn _)    = "<fn>"
 
 -- Stack ops
@@ -75,32 +83,26 @@ drp (_:vs) = return vs
 
 pop :: [Value] -> IO [Value]
 pop (ValStack (v:vs):vs') = return $ v:ValStack vs:vs'
-pop (ValStr (v:vs):vs')   = return $ ValChar v:ValStr vs:vs'
 pop _                     = error "Fail: pop"
 
 hop :: [Value] -> IO [Value]
 hop (ValStack (v1:v2:vs):vs') = return $ v2:ValStack (v1:vs):vs'
-hop (ValStr (v1:v2:vs):vs')   = return $ ValChar v2:ValStr (v1:vs):vs'
 hop _                         = error "Fail: hop"
 
 firstStk :: [Value] -> IO [Value]
 firstStk (ValStack vs@(v:_):vs') = return $ v:ValStack vs:vs'
-firstStk (ValStr vs@(v:_):vs')   = return $ ValChar v:ValStr vs:vs'
 firstStk _                       = error "Fail: fst"
 
 secondStk :: [Value] -> IO [Value]
 secondStk (ValStack vs@(_:v:_):vs') = return $ v:ValStack vs:vs'
-secondStk (ValStr vs@(_:v:_):vs')   = return $ ValChar v:ValStr vs:vs'
 secondStk _                         = error "Fail: snd"
 
 bot :: [Value] -> IO [Value]
 bot (ValStack vs:vs') = return $ last vs:ValStack (init vs):vs'
-bot (ValStr vs:vs')   = return $ ValChar (last vs):ValStr (init vs):vs'
 bot _                 = error "Fail: bot"
 
 lastStk :: [Value] -> IO [Value]
 lastStk (ValStack vs:vs') = return $ last vs:ValStack vs:vs'
-lastStk (ValStr vs:vs')   = return $ ValChar (last vs):ValStr vs:vs'
 lastStk _                 = error "Fail: lst"
 
 swap :: [Value] -> IO [Value]
@@ -124,7 +126,6 @@ pack vs = return [ValStack vs]
 
 splat :: [Value] -> IO [Value]
 splat (ValStack stk:vs) = return $ stk ++ vs
-splat (ValStr s:vs)     = return $ map ValChar s ++ vs
 splat vs                = return vs
 
 depth :: [Value] -> IO [Value]
@@ -146,10 +147,10 @@ bring vs = return $ last vs : init vs
 
 -- Arithmetic
 add :: [Value] -> IO [Value]
-add []                       = return []
-add vs@[_]                   = return vs
-add (ValStr s2:ValStr s1:vs) = return $ ValStr (s1 ++ s2):vs
-add (v2:v1:vs)               = return $ ValNum (numeric v1 + numeric v2):vs
+add []                           = return []
+add vs@[_]                       = return vs
+add (ValStack s2:ValStack s1:vs) = return $ ValStack (s1 ++ s2):vs
+add (v2:v1:vs)                   = return $ ValNum (numeric v1 + numeric v2):vs
 
 sub :: [Value] -> IO [Value]
 sub []         = return []
@@ -159,8 +160,8 @@ sub (v2:v1:vs) = return $ ValNum (numeric v1 - numeric v2):vs
 mult :: [Value] -> IO [Value]
 mult [] = return []
 mult vs@[_] = return vs
-mult (ValNum n:ValStr s:vs) = return $ ValStr (concat $ replicate (double2Int n) s):vs
-mult (v1@(ValStr _):v2@(ValNum _):vs) = mult $ v2:v1:vs
+mult (ValNum n:ValStack s:vs) = return $ ValStack (concat $ replicate (double2Int n) s):vs
+mult (v1@(ValStack _):v2@(ValNum _):vs) = mult $ v2:v1:vs
 mult (v2:v1:vs) = return $ ValNum (numeric v1 * numeric v2):vs
 
 div' :: [Value] -> IO [Value]
@@ -227,7 +228,7 @@ boolNot (v:vs) = return $ ValBool (not $ truthy v):vs
 -- Conversions
 asStr :: [Value] -> IO [Value]
 asStr []     = return []
-asStr (v:vs) = return $ ValStr (stringified v):vs
+asStr (v:vs) = return $ ValStack (map ValChar $ stringified v):vs
 
 asNum :: [Value] -> IO [Value]
 asNum []     = return []
@@ -246,14 +247,14 @@ chrVal (ValNum n:vs) = return $ ValChar (toEnum $ double2Int n):vs
 chrVal _             = error "Expected conversion int->char"
 
 packStr :: [Value] -> IO [Value]
-packStr [] = return [ValStr ""]
+packStr [] = return [ValStack []]
 packStr vs = let (s,vs') = break (\case ValChar _ -> False
                                         _ -> True) vs
-             in return $ ValStr [c | ValChar c <- s]:vs'
+             in return $ ValStack s:vs'
 
 isStr :: [Value] -> IO [Value]
-isStr vs@(ValStr _ :_) = return $ ValBool True:vs
-isStr vs               = return $ ValBool False:vs
+isStr vs@(ValStack v :_) = return $ ValBool (isJust $ maybeString v):vs
+isStr vs                 = return $ ValBool False:vs
 
 isNum :: [Value] -> IO [Value]
 isNum vs@(ValNum _ :_) = return $ ValBool True:vs
@@ -270,6 +271,10 @@ isChar vs                = return $ ValBool False:vs
 isStack :: [Value] -> IO [Value]
 isStack vs@(ValStack _ :_) = return $ ValBool True:vs
 isStack vs                 = return $ ValBool False:vs
+
+isFn :: [Value] -> IO [Value]
+isFn vs@(ValFn _ :_) = return $ ValBool True:vs
+isFn vs              = return $ ValBool False:vs
 
 -- Function operations
 type Runner = Context -> IO Context
@@ -293,7 +298,6 @@ applyLocal _ _ _ = error "Apply local expected function & stack"
 -- I/O
 put :: [Value] -> IO [Value]
 put []                  = return []
-put (ValStr s:vs)       = putStrLn s >> return vs
 put (ValChar c:vs)      = putStrLn [c] >> return vs
 put (ValBool True:vs)   = putStrLn "⊤" >> return vs
 put (ValBool False:vs)  = putStrLn "⊥" >> return vs
@@ -345,12 +349,13 @@ coreTable = M.fromList $ concatMap (\(names, fn) -> [ (name, Internal fn) | name
   (["bool"], asBool),
   (["ord"], ordVal),
   (["chr"], chrVal),
-  (["▭s", "packs"], packStr),
+  (["▭s"], packStr),
   (["¿str", "isStr"], isStr),
   (["¿num", "isNum"], isNum),
   (["¿bool", "isBool"], isBool),
   (["¿char", "isChar"], isChar),
   (["¿stk", "isStk"], isStack),
+  (["¿fn", "isFn"], isFn),
   (["put"], put),
   (["⚠", "dbg"], debug) -- \warning
   ] ++ concatMap (\(names, fn) -> [ (name, Mixed fn) | name <- names ]) [
