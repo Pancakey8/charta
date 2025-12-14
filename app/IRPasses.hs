@@ -4,6 +4,7 @@ module IRPasses where
 import           Data.Maybe (mapMaybe)
 import           Traverser
 import qualified Data.Map as M
+import Parser (Arguments)
 
 -- Cleans up PosMarker & GotoPos
 foregoPos :: [Instruction] -> [Instruction]
@@ -19,8 +20,8 @@ foregoPos instrs = concatMap (\case
                        GotoPos p -> Just p
                        _ -> Nothing) instrs
 
---                Function name -> Argument count, instructions
-type Program = M.Map String (Int, [Instruction])
+--                Function name -> Arguments, instructions
+type Program = M.Map String (Arguments, [Instruction])
 --                     local -> canonical
 data BuildUnit = Unit (M.Map String String) Program
 

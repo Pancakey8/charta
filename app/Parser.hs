@@ -118,10 +118,17 @@ grid = do
       let (line, rest) = span (\item -> val item /= LineEnd) is
       in line : splitLines (tailSafe rest)
 
-type Function = (String, Int, [[Item]])
+data Arguments = Limited Int
+               | Ellipses Int
+type Function = (String, Arguments, [[Item]])
 
 data TopLevel = FuncDecl Function
               | UseDrv String (Maybe String)
+
+lastMaybe :: [a] -> Maybe a
+lastMaybe [] = Nothing
+lastMaybe [x] = pure x
+lastMaybe (x:xs) = lastMaybe xs
 
 func :: Parser Function
 func = do
@@ -137,7 +144,9 @@ func = do
   void $ char '\n'
   body <- grid
   void $ string "}"
-  return (s, length args, body)
+  case lastMaybe args of
+    Just (Item { val = Sym "..." }) -> return (s, Ellipses (length args - 1), body)
+    _ -> return (s, Limited (length args), body)
 
 useDrv :: Parser TopLevel
 useDrv = do

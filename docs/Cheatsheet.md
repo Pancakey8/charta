@@ -32,6 +32,7 @@ A full list of builtin functions:
 | `⊩!` (`\Vdash !`)         | `hop`     | Pops the second element of a stack object to current stack                                                                         |
 | `⊣!` (`\dashv !`)         | `bot`     | Pops the bottom element of a stack object to current stack                                                                         |
 | `↻` (`\circlearrowright`) | `rot`     | Moves third element to the top, i.e. `[a b c] -> [c a b]`                                                                          |
+| `↷` (`\curvearrowright`)  | `rot-`    | Move the top element to the third position, i.e. `[a b c] -> [b c a]`                                                              |
 | `↕` (`\updownarrow`)      | `swp`     | Swaps the order of the topmost two elements, i.e. `[a b] -> [b a]`                                                                 |
 | `⊼` (`\barwedge`)         | `ovr`     | Copies the second element to the top, i.e. `[a b] -> [b a b]`                                                                      |
 | `▭` (`\rect`)             | `pack`    | Creates a new stack, pushes the current stack to the new stack as a single stack object                                            |

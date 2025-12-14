@@ -7,6 +7,7 @@ import           Data.List   (find)
 import           Data.Maybe  (fromJust)
 import           Debug.Trace (trace)
 import           Traverser   (Instruction (..))
+import Parser (Arguments(..))
 
 run :: Context -> IO Context
 run ctx = -- trace (show ctx) $
@@ -37,15 +38,23 @@ modifyStack ctx m = let f:fs = frames ctx
 step :: Instruction -> Context -> IO Context
 step i ctx = -- trace (show $ stack ctx) $
   case i of
-    Call f        -> case fns ctx M.! f of -- TODO: Handle fn not found
-                       Defined argc body -> let f:fs = frames ctx -- TODO: Handle few-args errors.
-                                            in return ctx { frames = Frame body 0 (take argc $ stack f)
-                                                                     : f { stack = drop argc $ stack f }
-                                                                     : fs }
-                       Internal fn -> fn (stack $ head $ frames ctx) >>= \c -> advance $
-                                                                               modifyStack ctx (const c)
-                       Mixed fn -> fn ctx run (stack $ head $ frames ctx) >>=
-                                   \c -> advance $ modifyStack ctx (const c)
+    
+    Call f        -> if f `M.notMember` fns ctx
+                     then error $ "Function '" ++ f ++ "' not found"
+                     else case fns ctx M.! f of
+                            Defined (Limited argc) body -> let f:fs = frames ctx -- TODO: Handle few-args errors.
+                                                           in return ctx { frames = Frame body 0 (take argc $ stack f)
+                                                                           : f { stack = drop argc $ stack f }
+                                                                           : fs }
+                            Defined (Ellipses argc) body -> let f:fs = frames ctx -- TODO: Handle few-args errors.
+                                                            in return ctx { frames = Frame body 0 (take argc (stack f)
+                                                                                                   ++ [ValStack (drop argc $ stack f)])
+                                                                            : f { stack = [] }
+                                                                            : fs }
+                            Internal fn -> fn (stack $ head $ frames ctx) >>= \c -> advance $
+                                                                                    modifyStack ctx (const c)
+                            Mixed fn -> fn ctx run (stack $ head $ frames ctx) >>=
+                                        \c -> advance $ modifyStack ctx (const c)
 
     PushNum n     -> advance $ modifyStack ctx $ \stk -> ValNum n : stk
 
@@ -79,7 +88,7 @@ step i ctx = -- trace (show $ stack ctx) $
 
 runProgram :: FuncTable -> IO Context
 runProgram table = do
-  let Defined 0 main = table M.! "main" -- TODO: Handle fn not found
+  let Defined (Limited 0) main = table M.! "main" -- TODO: Handle fn not found
   run $ Ctx {
     frames = [Frame { prog = main, pc = 0, stack = [] }],
     fns = coreTable `M.union` table }

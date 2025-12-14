@@ -7,11 +7,11 @@ import           Data.List   (intercalate)
 import qualified Data.Map    as M
 import           Data.Maybe  (isJust)
 import           GHC.Float   (double2Int, int2Double)
-import           Parser      (Item (..), ItemValue (..), num)
+import           Parser      (Item (..), ItemValue (..), num, Arguments (..))
 import           Text.Parsec (parse)
 import           Traverser   (Instruction)
 
-data Function = Defined Int [Instruction]
+data Function = Defined Arguments [Instruction]
               | Internal ([Value] -> IO [Value])
               | Mixed (Context -> Runner -> [Value] -> IO [Value])
 
@@ -115,6 +115,12 @@ rot []            = return []
 rot vs@[_]        = return vs
 rot [v1, v2]      = return [v2, v1]
 rot (v1:v2:v3:vs) = return $ v3:v1:v2:vs
+
+rotRev :: [Value] -> IO [Value]
+rotRev []            = return []
+rotRev vs@[_]        = return vs
+rotRev [v1, v2]      = return [v2, v1]
+rotRev (v1:v2:v3:vs) = return $ v2:v3:v1:vs
 
 over :: [Value] -> IO [Value]
 over []         = return []
@@ -282,17 +288,27 @@ type Runner = Context -> IO Context
 apply :: Context -> Runner -> [Value] -> IO [Value]
 apply _ _ (ValFn (Internal f):vs) = f vs
 apply ctx runner (ValFn (Mixed f):vs) = f ctx runner vs
-apply ctx runner (ValFn (Defined argc body):vs) = do
-  ctx' <- runner ctx { frames = [ Frame { prog = body, pc = 0, stack = take argc vs } ] }
-  return $ stack (head $ frames ctx') ++ drop argc vs
+apply ctx runner (ValFn (Defined args body):vs) = do
+  case args of
+    Limited argc -> do
+      ctx' <- runner ctx { frames = [ Frame { prog = body, pc = 0, stack = take argc vs } ] }
+      return $ stack (head $ frames ctx') ++ drop argc vs
+    Ellipses argc -> do
+      ctx' <- runner ctx { frames = [ Frame { prog = body, pc = 0, stack = take argc vs ++ [ValStack (drop argc vs)] } ] }
+      return $ stack (head $ frames ctx')
 apply _ _ _ = error "Apply expected function"
 
 applyLocal :: Context -> Runner -> [Value] -> IO [Value]
 applyLocal _ _ (ValFn (Internal f):ValStack s:vs) = f s >>= \s' -> return $ ValStack s' : vs
 applyLocal ctx runner (ValFn (Mixed f):ValStack s:vs) = f ctx runner s >>= \s' -> return $ ValStack s' : vs
-applyLocal ctx runner (ValFn (Defined argc body):ValStack s:vs) = do
-  ctx' <- runner ctx { frames = [ Frame { prog = body, pc = 0, stack = take argc s } ] }
-  return $ ValStack (stack (head $ frames ctx') ++ drop argc s) : vs
+applyLocal ctx runner (ValFn (Defined args body):ValStack s:vs) = do
+  case args of
+    Limited argc -> do
+      ctx' <- runner ctx { frames = [ Frame { prog = body, pc = 0, stack = take argc s } ] }
+      return $ ValStack (stack (head $ frames ctx') ++ drop argc s) : vs
+    Ellipses argc -> do
+      ctx' <- runner ctx { frames = [ Frame { prog = body, pc = 0, stack = take argc s ++ [ValStack (drop argc s)] } ] }
+      return $ ValStack (stack (head $ frames ctx')) : vs
 applyLocal _ _ _ = error "Apply local expected function & stack"
 
 -- I/O
@@ -306,7 +322,7 @@ put (v@(ValFn _):vs)    = print (stringified v) >> return vs
 put (v@(ValStack _):vs) = putStrLn (stringified v) >> return vs
 
 debug :: [Value] -> IO [Value]
-debug vs = print vs >> return vs
+debug vs = mapM_ (putStrLn . stringified) vs >> return vs
 
 coreTable :: FuncTable
 coreTable = M.fromList $ concatMap (\(names, fn) -> [ (name, Internal fn) | name <- names ]) [
@@ -319,6 +335,7 @@ coreTable = M.fromList $ concatMap (\(names, fn) -> [ (name, Internal fn) | name
   (["⊩!", "hop"], hop),
   (["⊣!", "bot"], bot),
   (["↻", "rot"], rot), -- \circlearrowright
+  (["↷", "rot-"], rotRev), -- \curvearrowright
   (["↕", "swp"], swap), -- \updownarrow
   (["⊼", "ovr"], over), -- \barwedge
   (["▭", "pack"], pack), -- \rect
