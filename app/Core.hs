@@ -7,22 +7,22 @@ import           Data.List   (intercalate)
 import qualified Data.Map    as M
 import           Data.Maybe  (isJust)
 import           GHC.Float   (double2Int, int2Double)
-import           Parser      (Item (..), ItemValue (..), num, Arguments (..))
+import           Parser      (Arguments (..), Item (..), ItemValue (..), num)
+import           System.Exit (exitFailure)
 import           Text.Parsec (parse)
 import           Traverser   (Instruction)
-import System.Exit (exitFailure)
 
 data Function = Defined Arguments [Instruction]
-              | Internal ([Value] -> IO [Value])
-              | Mixed (Context -> Runner -> [Value] -> IO [Value])
+              | Internal Arguments ([Value] -> IO [Value])
+              | Mixed Arguments (Context -> Runner -> [Value] -> IO [Value])
 
 instance Eq Function where
   _ == _ = False
 
 instance Show Function where
-  show (Defined _ _) = "<user-defined fn>"
-  show (Internal _)          = "<internal fn>"
-  show (Mixed _)             = "<internal fn>"
+  show (Defined _ _)  = "<user-defined fn>"
+  show (Internal _ _) = "<internal fn>"
+  show (Mixed _ _)    = "<internal fn>"
 
 type FuncTable = M.Map String Function
 
@@ -286,30 +286,40 @@ isFn vs              = return $ ValBool False:vs
 -- Function operations
 type Runner = Context -> IO Context
 
+argCount :: Arguments -> Int
+argCount (Limited n) = n
+argCount (Ellipses n) = n
+
+withArgs :: String -> Arguments -> [Value] -> ([Value] -> IO a) -> IO a
+withArgs fname (Limited n) vs f = if length vs < n
+                                  then error $ "'" ++ fname ++ "' expects " ++ show n ++ " arguments, found " ++ show (length vs)
+                                  else f $ take n vs
+withArgs fname (Ellipses n) vs f = if length vs < n
+                                   then error $ "'" ++ fname ++ "' expects at least " ++ show n ++ " arguments, found " ++ show (length vs)
+                                   else f $ take n vs ++ [ValStack (drop n vs)]
+
 apply :: Context -> Runner -> [Value] -> IO [Value]
-apply _ _ (ValFn (Internal f):vs) = f vs
-apply ctx runner (ValFn (Mixed f):vs) = f ctx runner vs
-apply ctx runner (ValFn (Defined args body):vs) = do
-  case args of
-    Limited argc -> do
-      ctx' <- runner ctx { frames = [ Frame { prog = body, pc = 0, stack = take argc vs } ] }
-      return $ stack (head $ frames ctx') ++ drop argc vs
-    Ellipses argc -> do
-      ctx' <- runner ctx { frames = [ Frame { prog = body, pc = 0, stack = take argc vs ++ [ValStack (drop argc vs)] } ] }
-      return $ stack (head $ frames ctx')
+apply _ _ (ValFn func@(Internal args f):vs) = withArgs (show func) args vs $ \_ -> f vs
+apply ctx runner (ValFn func@(Mixed args f):vs) = withArgs (show func) args vs $ \_ -> f ctx runner vs
+apply ctx runner (ValFn func@(Defined args body):vs) =
+  withArgs (show func) args vs $
+  \arg -> do
+    ctx' <- runner ctx { frames = [ Frame { prog = body, pc = 0, stack = arg } ] }
+    case args of
+      Limited argc -> return $ stack (head $ frames ctx') ++ drop argc vs
+      Ellipses _ -> return $ stack (head $ frames ctx')
 apply _ _ _ = error "Apply expected function"
 
 applyLocal :: Context -> Runner -> [Value] -> IO [Value]
-applyLocal _ _ (ValFn (Internal f):ValStack s:vs) = f s >>= \s' -> return $ ValStack s' : vs
-applyLocal ctx runner (ValFn (Mixed f):ValStack s:vs) = f ctx runner s >>= \s' -> return $ ValStack s' : vs
-applyLocal ctx runner (ValFn (Defined args body):ValStack s:vs) = do
-  case args of
-    Limited argc -> do
-      ctx' <- runner ctx { frames = [ Frame { prog = body, pc = 0, stack = take argc s } ] }
-      return $ ValStack (stack (head $ frames ctx') ++ drop argc s) : vs
-    Ellipses argc -> do
-      ctx' <- runner ctx { frames = [ Frame { prog = body, pc = 0, stack = take argc s ++ [ValStack (drop argc s)] } ] }
-      return $ ValStack (stack (head $ frames ctx')) : vs
+applyLocal _ _ (ValFn (Internal args f):ValStack s:vs) = f s >>= \s' -> return $ ValStack s' : vs
+applyLocal ctx runner (ValFn (Mixed args f):ValStack s:vs) = f ctx runner s >>= \s' -> return $ ValStack s' : vs
+applyLocal ctx runner (ValFn func@(Defined args body):ValStack s:vs) =
+  withArgs (show func) args s $
+  \arg -> do
+    ctx' <- runner ctx { frames = [ Frame { prog = body, pc = 0, stack = arg } ] }
+    case args of
+      Limited argc -> return $ ValStack (stack (head $ frames ctx') ++ drop argc s) : vs
+      Ellipses _ -> return $ ValStack (stack (head $ frames ctx')) : vs
 applyLocal _ _ _ = error "Apply local expected function & stack"
 
 -- I/O
@@ -326,62 +336,62 @@ debug :: [Value] -> IO [Value]
 debug vs = mapM_ (putStrLn . stringified) vs >> return vs
 
 panic :: [Value] -> IO [Value]
-panic [] = putStrLn "Panic triggered without a message" >> exitFailure
+panic []    = putStrLn "Panic triggered without a message" >> exitFailure
 panic (v:_) = putStrLn "Panic triggered: " >> put [v] >> exitFailure
 
 coreTable :: FuncTable
-coreTable = M.fromList $ concatMap (\(names, fn) -> [ (name, Internal fn) | name <- names ]) [
-  (["⇈", "dup"], dup), -- \upuparrows
-  (["∅", "drp"], drp), -- \emptyset
-  (["⊢", "fst"], firstStk), -- \vdash
-  (["⊩", "snd"], secondStk), -- \Vdash
-  (["⊣", "lst"], lastStk), -- \dashv
-  (["⊢!", "pop"], pop),
-  (["⊩!", "hop"], hop),
-  (["⊣!", "bot"], bot),
-  (["↻", "rot"], rot), -- \circlearrowright
-  (["↷", "rot-"], rotRev), -- \curvearrowright
-  (["↕", "swp"], swap), -- \updownarrow
-  (["⊼", "ovr"], over), -- \barwedge
-  (["▭", "pack"], pack), -- \rect
-  (["⋮", "spt"], splat), -- \vdots
-  (["≡", "dpt"], depth), -- \equiv
-  (["·", "null"], empty), -- \cdot
-  (["⇆", "rev"], rev), -- \leftrightarrows
-  (["⇓", "shv"], shove), -- \Downarrow
-  (["⇑", "brg"], bring), -- \Uparrow
-  (["+"], add),
-  (["-"], sub),
-  (["*"], mult),
-  (["/"], div'),
-  (["%"], modNum),
-  (["⊤", "T"], pushTrue), -- \top
-  (["⊥", "F"], pushFalse), -- \bot
-  (["="], equals),
-  (["≠", "!="], notEquals), -- \neq
-  (["<"], less),
-  ([">"], greater),
-  (["≤", "<="], lessEq), -- \leq
-  (["≥", ">="], greaterEq), -- \geq
-  (["∧", "&&"], boolAnd), -- \wedge
-  (["∨", "||"], boolOr), -- \vee
-  (["¬", "!"], boolNot), -- \neg
-  (["str"], asStr),
-  (["num"], asNum),
-  (["bool"], asBool),
-  (["ord"], ordVal),
-  (["chr"], chrVal),
-  (["▭s"], packStr),
-  (["¿str", "isStr"], isStr),
-  (["¿num", "isNum"], isNum),
-  (["¿bool", "isBool"], isBool),
-  (["¿char", "isChar"], isChar),
-  (["¿stk", "isStk"], isStack),
-  (["¿fn", "isFn"], isFn),
-  (["put"], put),
-  (["⚠", "dbg"], debug), -- \warning
-  (["⊗", "pnc"], panic) -- \otimes
-  ] ++ concatMap (\(names, fn) -> [ (name, Mixed fn) | name <- names ]) [
-  (["∘", "ap"], apply), -- \circ
-  (["⊡", "sap"], applyLocal) -- \dotsquare
+coreTable = M.fromList $ concatMap (\(names, args, fn) -> [ (name, Internal args fn) | name <- names ]) [
+  (["⇈", "dup"], Limited 1, dup), -- \upuparrows
+  (["∅", "drp"], Limited 1, drp), -- \emptyset
+  (["⊢", "fst"], Limited 1, firstStk), -- \vdash
+  (["⊩", "snd"], Limited 1, secondStk), -- \Vdash
+  (["⊣", "lst"], Limited 1, lastStk), -- \dashv
+  (["⊢!", "pop"], Limited 1, pop),
+  (["⊩!", "hop"], Limited 1, hop),
+  (["⊣!", "bot"], Limited 1, bot),
+  (["↻", "rot"], Limited 3, rot), -- \circlearrowright
+  (["↷", "rot-"], Limited 3, rotRev), -- \curvearrowright
+  (["↕", "swp"], Limited 2, swap), -- \updownarrow
+  (["⊼", "ovr"], Limited 2, over), -- \barwedge
+  (["▭", "pack"], Ellipses 0, pack), -- \rect
+  (["⋮", "spt"], Limited 1, splat), -- \vdots
+  (["≡", "dpt"], Ellipses 0, depth), -- \equiv
+  (["·", "null"], Ellipses 0, empty), -- \cdot
+  (["⇆", "rev"], Ellipses 0, rev), -- \leftrightarrows
+  (["⇓", "shv"], Ellipses 0, shove), -- \Downarrow
+  (["⇑", "brg"], Ellipses 0, bring), -- \Uparrow
+  (["+"], Limited 2, add),
+  (["-"], Limited 2, sub),
+  (["*"], Limited 2, mult),
+  (["/"], Limited 2, div'),
+  (["%"], Limited 2, modNum),
+  (["⊤", "T"], Limited 0, pushTrue), -- \top
+  (["⊥", "F"], Limited 0, pushFalse), -- \bot
+  (["="], Limited 2, equals),
+  (["≠", "!="], Limited 2, notEquals), -- \neq
+  (["<"], Limited 2, less),
+  ([">"], Limited 2, greater),
+  (["≤", "<="], Limited 2, lessEq), -- \leq
+  (["≥", ">="], Limited 2, greaterEq), -- \geq
+  (["∧", "&&"], Limited 2, boolAnd), -- \wedge
+  (["∨", "||"], Limited 2, boolOr), -- \vee
+  (["¬", "!"], Limited 1, boolNot), -- \neg
+  (["str"], Limited 1, asStr),
+  (["num"], Limited 1, asNum),
+  (["bool"], Limited 1, asBool),
+  (["ord"], Limited 1, ordVal),
+  (["chr"], Limited 1, chrVal),
+  (["▭s"], Ellipses 0, packStr),
+  (["¿str", "isStr"], Limited 1, isStr),
+  (["¿num", "isNum"], Limited 1, isNum),
+  (["¿bool", "isBool"], Limited 1, isBool),
+  (["¿char", "isChar"], Limited 1, isChar),
+  (["¿stk", "isStk"], Limited 1, isStack),
+  (["¿fn", "isFn"], Limited 1, isFn),
+  (["put"], Limited 1, put),
+  (["⚠", "dbg"], Ellipses 0, debug), -- \warning
+  (["⊗", "pnc"], Ellipses 0, panic) -- \otimes
+  ] ++ concatMap (\(names, args, fn) -> [ (name, Mixed args fn) | name <- names ]) [
+  (["∘", "ap"], Ellipses 1, apply), -- \circ
+  (["⊡", "sap"], Ellipses 1, applyLocal) -- \dotsquare
   ]

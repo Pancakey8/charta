@@ -42,23 +42,25 @@ step i ctx = -- trace (show $ stack ctx) $
     Call fname        -> if fname `M.notMember` fns ctx
                          then error $ "Function '" ++ fname ++ "' not found"
                          else case fns ctx M.! fname of
-                                Defined (Limited argc) body -> let f:fs = frames ctx -- TODO: Handle few-args errors.
-                                                               in if length (stack f) < argc
-                                                                  then error $ "'" ++ fname ++ "' expects " ++ show argc ++ " arguments, found " ++ show (length $ stack f)
-                                                                  else return ctx { frames = Frame body 0 (take argc $ stack f)
-                                                                                    : f { stack = drop argc $ stack f }
-                                                                                    : fs }
-                                Defined (Ellipses argc) body -> let f:fs = frames ctx -- TODO: Handle few-args errors.
-                                                                in if length (stack f) < argc
-                                                                   then error $ "'" ++ fname ++ "' expects at least " ++ show argc ++ " arguments, found " ++ show (length $ stack f)
-                                                                   else return ctx { frames = Frame body 0 (take argc (stack f)
-                                                                                                            ++ [ValStack (drop argc $ stack f)])
-                                                                                : f { stack = [] }
-                                                                                : fs }
-                                Internal fn -> fn (stack $ head $ frames ctx) >>= \c -> advance $
-                                                                                        modifyStack ctx (const c)
-                                Mixed fn -> fn ctx run (stack $ head $ frames ctx) >>=
-                                            \c -> advance $ modifyStack ctx (const c)
+                                Defined args@(Limited argc) body -> let f:fs = frames ctx
+                                                                    in withArgs fname args (stack f) $
+                                                                       \arg ->
+                                                                         return ctx { frames = Frame body 0 arg
+                                                                                               : f { stack = drop argc $ stack f }
+                                                                                               : fs }
+                                Defined args@(Ellipses argc) body -> let f:fs = frames ctx
+                                                                     in withArgs fname args (stack f) $
+                                                                        \arg ->
+                                                                          return ctx { frames = Frame body 0 arg
+                                                                                       : f { stack = [] }
+                                                                                       : fs }
+                                Internal args fn -> let stk = stack $ head $ frames ctx
+                                                    in withArgs fname args stk $ \_ -> fn stk >>=
+                                                                                       \c -> advance $
+                                                                                             modifyStack ctx (const c)
+                                Mixed args fn -> let stk = stack $ head $ frames ctx
+                                                 in withArgs fname args stk $ \_ -> fn ctx run stk >>=
+                                                                                    \c -> advance $ modifyStack ctx (const c)
 
     PushNum n     -> advance $ modifyStack ctx $ \stk -> ValNum n : stk
 
@@ -92,7 +94,10 @@ step i ctx = -- trace (show $ stack ctx) $
 
 runProgram :: FuncTable -> IO Context
 runProgram table = do
-  let Defined (Limited 0) main = table M.! "main" -- TODO: Handle fn not found
-  run $ Ctx {
-    frames = [Frame { prog = main, pc = 0, stack = [] }],
-    fns = coreTable `M.union` table }
+  case table M.!? "main" of
+    Just (Defined (Limited 0) main) ->
+      run $ Ctx {
+      frames = [Frame { prog = main, pc = 0, stack = [] }],
+      fns = coreTable `M.union` table }
+    Just _ -> error "Expected main function to take no arguments"
+    Nothing -> error "Expected a main function"
