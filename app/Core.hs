@@ -10,6 +10,7 @@ import           GHC.Float   (double2Int, int2Double)
 import           Parser      (Item (..), ItemValue (..), num, Arguments (..))
 import           Text.Parsec (parse)
 import           Traverser   (Instruction)
+import System.Exit (exitFailure)
 
 data Function = Defined Arguments [Instruction]
               | Internal ([Value] -> IO [Value])
@@ -324,6 +325,10 @@ put (v@(ValStack _):vs) = putStrLn (stringified v) >> return vs
 debug :: [Value] -> IO [Value]
 debug vs = mapM_ (putStrLn . stringified) vs >> return vs
 
+panic :: [Value] -> IO [Value]
+panic [] = putStrLn "Panic triggered without a message" >> exitFailure
+panic (v:_) = putStrLn "Panic triggered: " >> put [v] >> exitFailure
+
 coreTable :: FuncTable
 coreTable = M.fromList $ concatMap (\(names, fn) -> [ (name, Internal fn) | name <- names ]) [
   (["⇈", "dup"], dup), -- \upuparrows
@@ -374,7 +379,8 @@ coreTable = M.fromList $ concatMap (\(names, fn) -> [ (name, Internal fn) | name
   (["¿stk", "isStk"], isStack),
   (["¿fn", "isFn"], isFn),
   (["put"], put),
-  (["⚠", "dbg"], debug) -- \warning
+  (["⚠", "dbg"], debug), -- \warning
+  (["⊗", "pnc"], panic) -- \otimes
   ] ++ concatMap (\(names, fn) -> [ (name, Mixed fn) | name <- names ]) [
   (["∘", "ap"], apply), -- \circ
   (["⊡", "sap"], applyLocal) -- \dotsquare

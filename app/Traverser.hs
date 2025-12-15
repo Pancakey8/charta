@@ -38,7 +38,20 @@ data Instruction = Call String
                  | GotoPos Pos
                  | JumpTrue String
                  | Exit
-                 deriving (Show, Eq)
+                 deriving (Eq)
+
+instance Show Instruction where
+  show (Call s)        = "Call " ++ s
+  show (PushFn s)      = "PushFn " ++ s
+  show (PushStr s)     = "PushStr " ++ show s
+  show (PushChar c)    = "PushChar " ++ show c
+  show (PushNum n)     = "PushNum " ++ show n
+  show (Label s)       = "Label " ++ show s
+  show (Goto s)        = "Goto " ++ show s
+  show (JumpTrue s)    = "JumpTrue " ++ show s
+  show Exit            = "Exit"
+  show (PosMarker p i) = "PosMarker " ++ show p ++ " " ++ show i
+  show (GotoPos p)     = "GotoPos " ++ show p
 
 data EmitterError = Err { posn :: Pos, what :: String }
                   deriving (Show)

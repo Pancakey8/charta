@@ -120,6 +120,7 @@ grid = do
 
 data Arguments = Limited Int
                | Ellipses Int
+               deriving (Show)
 type Function = (String, Arguments, [[Item]])
 
 data TopLevel = FuncDecl Function

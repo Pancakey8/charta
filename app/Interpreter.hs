@@ -6,8 +6,8 @@ import           Core
 import           Data.List   (find)
 import           Data.Maybe  (fromJust)
 import           Debug.Trace (trace)
+import           Parser      (Arguments (..))
 import           Traverser   (Instruction (..))
-import Parser (Arguments(..))
 
 run :: Context -> IO Context
 run ctx = -- trace (show ctx) $
@@ -32,29 +32,33 @@ headStack :: Context -> Value
 headStack = head . stack . head . frames
 
 modifyStack :: Context -> ([Value] -> [Value]) -> Context
-modifyStack ctx m = let f:fs = frames ctx
+modifyStack ctx m = let f:fs = frames ctx -- shouldn't trigger
                     in ctx { frames = f { stack = m (stack f) } : fs }
 
 step :: Instruction -> Context -> IO Context
 step i ctx = -- trace (show $ stack ctx) $
   case i of
-    
-    Call f        -> if f `M.notMember` fns ctx
-                     then error $ "Function '" ++ f ++ "' not found"
-                     else case fns ctx M.! f of
-                            Defined (Limited argc) body -> let f:fs = frames ctx -- TODO: Handle few-args errors.
-                                                           in return ctx { frames = Frame body 0 (take argc $ stack f)
-                                                                           : f { stack = drop argc $ stack f }
-                                                                           : fs }
-                            Defined (Ellipses argc) body -> let f:fs = frames ctx -- TODO: Handle few-args errors.
-                                                            in return ctx { frames = Frame body 0 (take argc (stack f)
-                                                                                                   ++ [ValStack (drop argc $ stack f)])
-                                                                            : f { stack = [] }
-                                                                            : fs }
-                            Internal fn -> fn (stack $ head $ frames ctx) >>= \c -> advance $
-                                                                                    modifyStack ctx (const c)
-                            Mixed fn -> fn ctx run (stack $ head $ frames ctx) >>=
-                                        \c -> advance $ modifyStack ctx (const c)
+
+    Call fname        -> if fname `M.notMember` fns ctx
+                         then error $ "Function '" ++ fname ++ "' not found"
+                         else case fns ctx M.! fname of
+                                Defined (Limited argc) body -> let f:fs = frames ctx -- TODO: Handle few-args errors.
+                                                               in if length (stack f) < argc
+                                                                  then error $ "'" ++ fname ++ "' expects " ++ show argc ++ " arguments, found " ++ show (length $ stack f)
+                                                                  else return ctx { frames = Frame body 0 (take argc $ stack f)
+                                                                                    : f { stack = drop argc $ stack f }
+                                                                                    : fs }
+                                Defined (Ellipses argc) body -> let f:fs = frames ctx -- TODO: Handle few-args errors.
+                                                                in if length (stack f) < argc
+                                                                   then error $ "'" ++ fname ++ "' expects at least " ++ show argc ++ " arguments, found " ++ show (length $ stack f)
+                                                                   else return ctx { frames = Frame body 0 (take argc (stack f)
+                                                                                                            ++ [ValStack (drop argc $ stack f)])
+                                                                                : f { stack = [] }
+                                                                                : fs }
+                                Internal fn -> fn (stack $ head $ frames ctx) >>= \c -> advance $
+                                                                                        modifyStack ctx (const c)
+                                Mixed fn -> fn ctx run (stack $ head $ frames ctx) >>=
+                                            \c -> advance $ modifyStack ctx (const c)
 
     PushNum n     -> advance $ modifyStack ctx $ \stk -> ValNum n : stk
 

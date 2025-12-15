@@ -1,6 +1,6 @@
 module Main (main) where
 
-import           Control.Monad      (liftM2)
+import           Control.Monad      (liftM2, when)
 import           Core               (Function (..))
 import           Data.Functor       (void)
 import qualified Data.Map           as M
@@ -11,7 +11,9 @@ import           System.Environment (getArgs)
 import           System.FilePath    (dropFileName, (</>))
 import           Text.Parsec        (parse)
 import           Traverser          (Grid (Grid), IREmitter (runEmitter),
-                                     traverse)
+                                     traverse, EmitterError (..))
+import Debug.Trace (trace)
+import Data.Foldable (forM_)
 
 -- TODO: Find a place for this logic:
 data ProgContext = ProgCtx { root :: FilePath, namespace :: [String] }
@@ -32,7 +34,10 @@ makeProg ctx (UseDrv s ns:tls) = do
       return $ liftM2 (++) rest this
 makeProg ctx (FuncDecl (name, argc, body):tls) = do
   case runEmitter (Traverser.traverse (Grid body) (0,0)) [] of
-    Left e -> print e >> return Nothing
+    Left e -> do
+                putStrLn $ "In '" ++ name ++ "', at position " ++ show (posn e)
+                putStrLn $ what e
+                return Nothing
     Right (_, instrs) -> do
       rest <- makeProg ctx tls
       let instrs' = foregoPos instrs
@@ -46,9 +51,9 @@ makeProg ctx (FuncDecl (name, argc, body):tls) = do
 main :: IO ()
 main = do
   args <- getArgs
-  if length args /= 1
+  if null args
     then do
-      putStrLn "Usage: charta <source-file.ch>"
+      putStrLn "Usage: charta <source-file.ch> [opts]"
       return ()
     else do
       let root' = dropFileName (head args)
@@ -59,5 +64,12 @@ main = do
           res' <- makeProg ProgCtx { root = root', namespace = [] } tls
           case res' of
             Nothing  -> return ()
-            Just progs -> void $ runProgram $ M.map (uncurry Defined) $
-                          foldl M.union M.empty $ map canonicalizeNames progs
+            Just progs -> do
+                            when ("-ir" `elem` tail args) $ mapM_ display (M.toList prog)
+                            void $ runProgram $ M.map (uncurry Defined) prog
+                          where
+                            prog = foldl M.union M.empty $ map canonicalizeNames progs
+                            display (name, (args, instrs)) = do
+                              putStrLn $ "fn " ++ name ++ "(" ++ show args ++ "):"
+                              forM_ instrs $ \instr -> do
+                                putStrLn $ "  " ++ show instr
