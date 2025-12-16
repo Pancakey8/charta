@@ -6,6 +6,7 @@ author:          Pancakey8
 maintainer:      pancake-08@proton.me
 build-type:      Simple
 extra-doc-files: CHANGELOG.md
+data-files: stdlib/*.ch
 
 common warnings
     ghc-options: -Wall
@@ -13,14 +14,19 @@ common warnings
 executable charta
     import:           warnings
     main-is:          Main.hs
-    build-depends:    base ^>=4.21.0.0,
+    build-depends:    directory ^>=1.3.9.0,
+                      base ^>=4.21.0.0,
                       parsec,
                       containers,
-                      filepath
+                      filepath,
+                      directory
     hs-source-dirs:   app
     other-modules:    Parser,
                       Traverser,
                       IRPasses,
                       Interpreter,
-                      Core
+                      Core,
+                      StdLib,
+                      StdLib.IO
     default-language: Haskell2010
+

@@ -5,6 +5,7 @@ import           Data.Maybe (mapMaybe)
 import           Traverser
 import qualified Data.Map as M
 import Parser (Arguments)
+import Core (Function (..))
 
 -- Cleans up PosMarker & GotoPos
 foregoPos :: [Instruction] -> [Instruction]
@@ -21,9 +22,10 @@ foregoPos instrs = concatMap (\case
                        _ -> Nothing) instrs
 
 --                Function name -> Arguments, instructions
-type Program = M.Map String (Arguments, [Instruction])
+type Program = M.Map String Function
 --                     local -> canonical
 data BuildUnit = Unit (M.Map String String) Program
+               deriving (Show)
 
 -- TODO: Bring back a doPasses function to handle everything:
 canonicalizeNames :: BuildUnit -> Program
@@ -31,7 +33,9 @@ canonicalizeNames (Unit names fns) = M.foldrWithKey resolve fns names
   where
     resolve local canon tbl =
       let tbl' = M.insert canon (tbl M.! local) $ M.delete local tbl
-      in M.map (\(argc, body) -> (argc, resolveBody local canon body)) tbl'
+      in M.map (\case
+                   Defined argc body -> Defined argc $ resolveBody local canon body
+                   x -> x) tbl'
     resolveBody _ _ [] = []
     resolveBody local canon (i:is) = rewrite local canon i : resolveBody local canon is
     rewrite local canon (Call c) = if c == local then Call canon else Call c
