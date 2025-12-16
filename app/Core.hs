@@ -287,7 +287,7 @@ isFn vs              = return $ ValBool False:vs
 type Runner = Context -> IO Context
 
 argCount :: Arguments -> Int
-argCount (Limited n) = n
+argCount (Limited n)  = n
 argCount (Ellipses n) = n
 
 withArgs :: String -> Arguments -> [Value] -> ([Value] -> IO a) -> IO a
@@ -307,7 +307,7 @@ apply ctx runner (ValFn func@(Defined args body):vs) =
     ctx' <- runner ctx { frames = [ Frame { prog = body, pc = 0, stack = arg } ] }
     case args of
       Limited argc -> return $ stack (head $ frames ctx') ++ drop argc vs
-      Ellipses _ -> return $ stack (head $ frames ctx')
+      Ellipses _   -> return $ stack (head $ frames ctx')
 apply _ _ _ = error "Apply expected function"
 
 applyLocal :: Context -> Runner -> [Value] -> IO [Value]

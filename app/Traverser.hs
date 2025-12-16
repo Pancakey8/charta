@@ -131,7 +131,7 @@ traverse grid initPos = void $ go initPos (1, 0) S.empty
             let Grid g = grid
               -- We keep going vertically if empty line
               -- This helps avoid confusion
-              in if fst dir == 0 && 0 < snd pos && snd pos < length g 
+              in if fst dir == 0 && 0 < snd pos && snd pos < length g
                  then -- trace ("DIR:" ++ show dir ++ ",POS:" ++ show pos ++ ",LEN:" ++ show (length g) )
                       go (pos `move` dir) dir emitted
                  else do

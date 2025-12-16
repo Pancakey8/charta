@@ -1,8 +1,8 @@
 module StdLib where
 
-import StdLib.IO as IO
-import qualified Data.Map as M
-import Core (FuncTable)
+import           Core      (FuncTable)
+import qualified Data.Map  as M
+import           StdLib.IO as IO
 
 stdTable :: M.Map String FuncTable
 stdTable = M.fromList [

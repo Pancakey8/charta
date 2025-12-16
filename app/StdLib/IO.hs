@@ -1,8 +1,9 @@
 module StdLib.IO where
-import Core (FuncTable, Function (..), Value (..), stringified)
-import qualified Data.Map as M
-import Parser (Arguments(..))
-import System.IO (hSetBuffering, stdin, hGetChar, BufferMode (NoBuffering))
+import           Core      (FuncTable, Function (..), Value (..), stringified)
+import qualified Data.Map  as M
+import           Parser    (Arguments (..))
+import           System.IO (BufferMode (NoBuffering), hGetChar, hSetBuffering,
+                            stdin)
 
 getCh :: [Value] -> IO [Value]
 getCh vs = do

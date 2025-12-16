@@ -65,7 +65,7 @@ comment = do
 escape :: Char -> Char
 escape 'n' = '\n'
 escape 't' = '\t'
-escape c = c
+escape c   = c
 
 strLit :: Parser Item
 strLit = do
@@ -127,8 +127,8 @@ data TopLevel = FuncDecl Function
               | UseDrv String (Maybe String)
 
 lastMaybe :: [a] -> Maybe a
-lastMaybe [] = Nothing
-lastMaybe [x] = pure x
+lastMaybe []     = Nothing
+lastMaybe [x]    = pure x
 lastMaybe (x:xs) = lastMaybe xs
 
 func :: Parser Function
@@ -164,7 +164,7 @@ useDrv = do
 
 topLevel :: Parser TopLevel
 topLevel = (FuncDecl <$> func) <|> useDrv
-  
+
 parseProgram :: Parser [TopLevel]
 parseProgram = do
   tls <- many $ spaces *> topLevel <* spaces
