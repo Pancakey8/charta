@@ -1,10 +1,10 @@
 module Parser where
-import           Control.Monad      (void)
+import           Control.Monad      (void, when)
 import           Data.Char          (isSpace)
 import           Text.Parsec        (anyChar, char, digit, eof, getPosition,
                                      lookAhead, many, many1, manyTill, option,
                                      satisfy, sourceColumn, spaces, string, try,
-                                     (<|>))
+                                     (<|>), unexpected)
 import           Text.Parsec.String (Parser)
 
 data ItemValue = ItNum Double
@@ -17,6 +17,7 @@ data ItemValue = ItNum Double
                | StrLit String
                | CharLit Char
                | FnRef String
+               | FnVal [Item]
                | Space
                | LineEnd
                deriving (Show, Eq)
@@ -97,13 +98,23 @@ fnRef = do
   end <- getPosition
   return Item { len = sourceColumn end - sourceColumn start, val = FnRef s }
 
+fnVal :: Parser Item
+fnVal = do
+  start <- getPosition
+  void $ char '['
+  g <- grid
+  void $ char ']'
+  end <- getPosition
+  when (length g > 1) $ unexpected "Multiline function values not allowed"
+  return Item { len = sourceColumn end - sourceColumn start, val = FnVal (head g) }
+
 lineBreak :: Parser Item
 lineBreak = do
   void $ char '\n'
   return Item { len = 0, val = LineEnd }
 
 parse1 :: Parser Item
-parse1 = num <|> strLit <|> fnRef <|> charLit <|> specials <|> lineBreak <|> comment <|> space <|> sym
+parse1 = num <|> strLit <|> try fnRef <|> fnVal <|> charLit <|> specials <|> lineBreak <|> comment <|> space <|> sym
 
 grid :: Parser [[Item]]
 grid = do

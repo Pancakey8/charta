@@ -14,6 +14,7 @@ foregoPos instrs = concatMap (\case
                                   [ Label $ "P_" ++ show (x + dx, y)
                                   | let (x, y) = p, dx <- [0..l-1],
                                         (x + dx, y) `elem` gotos ]
+                                PushFnVal is -> [PushFnVal $ foregoPos is]
                                 i -> [i]) instrs
   where
     gotos = mapMaybe (\case

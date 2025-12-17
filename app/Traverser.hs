@@ -32,6 +32,7 @@ data Instruction = Call String
                  | PushStr String
                  | PushChar Char
                  | PushFn String
+                 | PushFnVal [Instruction]
                  | Label String
                  | PosMarker Pos Int -- Pos, length
                  | Goto String
@@ -43,6 +44,7 @@ data Instruction = Call String
 instance Show Instruction where
   show (Call s)        = "Call " ++ s
   show (PushFn s)      = "PushFn " ++ s
+  show (PushFnVal is)      = "PushFnVal " ++ show is
   show (PushStr s)     = "PushStr " ++ show s
   show (PushChar c)    = "PushChar " ++ show c
   show (PushNum n)     = "PushNum " ++ show n
@@ -154,6 +156,12 @@ traverse grid initPos = void $ go initPos (1, 0) S.empty
               CharLit c -> do
                 emit $ PushChar c
                 go pos' dir emitted'
+              FnVal its ->
+                case runEmitter (Traverser.traverse (Grid [its]) (0, 0)) [] of 
+                  Left e -> throwEmit e >> return emitted'
+                  Right (_, is) -> do
+                    emit $ PushFnVal is
+                    go pos' dir emitted'
               FnRef s -> do
                 emit $ PushFn s
                 go pos' dir emitted'

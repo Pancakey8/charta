@@ -70,6 +70,8 @@ step i ctx = -- trace (show $ stack ctx) $
 
     PushFn f -> advance $ modifyStack ctx $ \stk -> ValFn (fns ctx M.! f) : stk
 
+    PushFnVal is -> advance $ modifyStack ctx $ \stk -> ValFn (Defined (Ellipses 0) is) : stk
+
     Label _       -> advance ctx
 
     Goto l        -> performGo l ctx
