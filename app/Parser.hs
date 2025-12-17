@@ -121,7 +121,9 @@ grid = do
 data Arguments = Limited Int
                | Ellipses Int
                deriving (Show)
-type Function = (String, Arguments, [[Item]])
+data Visibility = Visible | Hidden
+                deriving (Show, Eq)
+type Function = (String, Arguments, [[Item]], Visibility)
 
 data TopLevel = FuncDecl Function
               | UseDrv String (Maybe String)
@@ -133,6 +135,8 @@ lastMaybe (x:xs) = lastMaybe xs
 
 func :: Parser Function
 func = do
+  priv <- option Visible $ string "hide" >> pure Hidden
+  spaces
   void $ string "fn"
   spaces
   Item { val = Sym s } <- sym
@@ -146,8 +150,8 @@ func = do
   body <- grid
   void $ string "}"
   case lastMaybe args of
-    Just (Item { val = Sym "..." }) -> return (s, Ellipses (length args - 1), body)
-    _ -> return (s, Limited (length args), body)
+    Just (Item { val = Sym "..." }) -> return (s, Ellipses (length args - 1), body, priv)
+    _ -> return (s, Limited (length args), body, priv)
 
 useDrv :: Parser TopLevel
 useDrv = do

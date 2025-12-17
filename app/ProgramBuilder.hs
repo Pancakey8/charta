@@ -1,10 +1,11 @@
+{-# LANGUAGE TupleSections #-}
 module ProgramBuilder where
 import           Control.Exception (IOException, try)
 import           Core              (Function (..))
 import           Data.Foldable     (forM_, for_)
 import qualified Data.Map          as M
 import           IRPasses          (foregoPos)
-import           Parser            (TopLevel (FuncDecl, UseDrv), parseProgram)
+import           Parser            (TopLevel (FuncDecl, UseDrv), parseProgram, Visibility (..))
 import           StdLib            (stdTable)
 import           System.Directory  (doesFileExist)
 import           System.FilePath   (addExtension, dropFileName, hasExtension,
@@ -15,7 +16,7 @@ import           Traverser         (EmitterError (..), Grid (Grid),
                                     Instruction (..), runEmitter)
 import System.Environment (getExecutablePath)
 
-data SourceTree = Source (M.Map String Function) [SourceTree]
+data SourceTree = Source (M.Map String (Visibility, Function)) [SourceTree]
                 | Namespace String SourceTree
                 deriving (Show)
 
@@ -69,7 +70,7 @@ buildSource' appendRoot file root = do
           Right tls ->
             do
               (Source m ts)<- buildFromTLs tls root
-              return $ Source (m `M.union` (stdTable M.! takeFileName file)) ts
+              return $ Source (m `M.union` M.map (Visible,) (stdTable M.! takeFileName file)) ts
       else error $ "Failed to find package '" ++ show file ++ "'"
 
 buildFromTLs :: [TopLevel] -> FilePath -> IO SourceTree
@@ -86,26 +87,35 @@ buildFromTLs tls root = go tls M.empty []
               Just alias -> Namespace alias pkgTree
       go rest funcs (wrapped : imports)
 
-    go (FuncDecl (name, args, body) : rest) funcs imports =
+    go (FuncDecl (name, args, body, vis) : rest) funcs imports =
       case runEmitter (Traverser.traverse (Grid body) (0,0)) [] of
         Left e -> do
           putStrLn $ "In '" ++ name ++ "', at position " ++ show (posn e)
           error $ what e
         Right (_, instrs) -> do
           let func = Defined args (foregoPos instrs)
-          go rest (M.insert name func funcs) imports
+          go rest (M.insert name (vis, func) funcs) imports
 
 flattenTree :: SourceTree -> M.Map String Function
 flattenTree tree = go tree ""
   where
     go (Source tbl ts) ns =
       let rest = map (`go` ns) ts
-          tbl' = M.mapKeys (ns ++) $ M.mapWithKey (rewrite ns) tbl
+          tbl' = M.fromList $ map (\(k, (_, f)) -> (getName ns k, f))
+                 $ M.toList $ M.mapWithKey (rewrite ns) tbl
       in foldl M.union tbl' rest
       where
-        rewrite ns fname (Defined args instrs) = Defined args $ map (rewriteTerm ns) instrs
-        rewrite _ _ f = f
-        rewriteTerm ns (Call x) = Call $ if x `M.member` tbl then ns ++ x else x
-        rewriteTerm ns (PushFn x) = PushFn $ if x `M.member` tbl then ns ++ x else x
+        getName ns name = if name `M.member` tbl
+                          then
+                            case tbl M.! name of
+                              (Visible, _) -> ns ++ name
+                              (Hidden, _) -> ns ++ name ++ "(hidden)"
+                          else name
+
+        rewrite ns fname (v, Defined args instrs) = (v, Defined args $ map (rewriteTerm ns) instrs)
+        rewrite _ _ (v, f) = (v, f)
+
+        rewriteTerm ns (Call x) = Call $ getName ns x
+        rewriteTerm ns (PushFn x) = PushFn $ getName ns x
         rewriteTerm _ x = x
     go (Namespace ns' t) ns = go t (ns ++ ns' ++ ".")

@@ -6,5 +6,6 @@ import           StdLib.IO as IO
 
 stdTable :: M.Map String FuncTable
 stdTable = M.fromList [
-  ("io", IO.table)
+  ("io", IO.table),
+  ("strings", M.empty)
   ]

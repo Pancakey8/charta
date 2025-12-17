@@ -6,6 +6,8 @@ author:          Pancakey8
 maintainer:      pancake-08@proton.me
 build-type:      Custom
 extra-doc-files: CHANGELOG.md
+extra-source-files:
+    stdlib/*.ch
 
 custom-setup
     setup-depends: base ^>=4.21.0.0,

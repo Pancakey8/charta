@@ -41,6 +41,8 @@ Executable is then found in:
 cabal list-bin charta
 ```
 
+<sup>^ If list-bin fails, check `dist-newstyle/` manually</sup>
+
 ## Contributing
 
 Because the project is in an early stage / experimental, I don't intend on

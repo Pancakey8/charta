@@ -20,7 +20,7 @@ instance Eq Function where
   _ == _ = False
 
 instance Show Function where
-  show (Defined _ _)  = "<user-defined fn>"
+  show (Defined {})  = "<user-defined fn>"
   show (Internal _ _) = "<internal fn>"
   show (Mixed _ _)    = "<internal fn>"
 
@@ -323,8 +323,16 @@ applyLocal ctx runner (ValFn func@(Defined args body):ValStack s:vs) =
 applyLocal _ _ _ = error "Apply local expected function & stack"
 
 -- I/O
+stringified' :: Value -> String
+stringified' (ValStack s) =
+  case maybeString s of
+    Just str -> "\"" ++ str ++ "\""
+    Nothing -> stringified (ValStack s)
+stringified' v = stringified v
+
 debug :: [Value] -> IO [Value]
-debug vs = mapM_ (putStrLn . stringified) vs >> return vs
+debug vs = putStrLn (show (length vs) ++ ":") >>
+           mapM_ (putStrLn . (" - " ++) . stringified') vs >> return vs
 
 panic :: [Value] -> IO [Value]
 panic []    = putStrLn "Panic triggered without a message" >> exitFailure
@@ -373,12 +381,12 @@ coreTable = M.fromList $ concatMap (\(names, args, fn) -> [ (name, Internal args
   (["ord"], Limited 1, ordVal),
   (["chr"], Limited 1, chrVal),
   (["▭s"], Ellipses 0, packStr),
-  (["¿str", "isStr"], Limited 1, isStr),
-  (["¿num", "isNum"], Limited 1, isNum),
-  (["¿bool", "isBool"], Limited 1, isBool),
-  (["¿char", "isChar"], Limited 1, isChar),
-  (["¿stk", "isStk"], Limited 1, isStack),
-  (["¿fn", "isFn"], Limited 1, isFn),
+  (["¿str", "is-str"], Limited 1, isStr),
+  (["¿num", "is-num"], Limited 1, isNum),
+  (["¿bool", "is-bool"], Limited 1, isBool),
+  (["¿char", "is-char"], Limited 1, isChar),
+  (["¿stk", "is-stk"], Limited 1, isStack),
+  (["¿fn", "is-fn"], Limited 1, isFn),
   (["⚠", "dbg"], Ellipses 0, debug), -- \warning
   (["⊗", "pnc"], Ellipses 0, panic) -- \otimes
   ] ++ concatMap (\(names, args, fn) -> [ (name, Mixed args fn) | name <- names ]) [
