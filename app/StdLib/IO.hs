@@ -11,7 +11,11 @@ getCh vs = do
   c <- getChar
   return $ ValChar c:vs
 
+printVal :: [Value] -> IO [Value]
+printVal (v:vs) = putStr (stringified v) >> return vs
+
 table :: FuncTable
 table = M.fromList $ concatMap (\(names, args, fn) -> [ (name, Internal args fn) | name <- names ]) [
-  (["get"], Limited 0, getCh)
+  (["∈", "get"], Limited 0, getCh), -- in
+  (["∋", "print"], Limited 1, printVal) -- ni
   ]

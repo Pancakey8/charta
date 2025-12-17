@@ -4,9 +4,14 @@ version:         0.1.0.0
 license:         NONE
 author:          Pancakey8
 maintainer:      pancake-08@proton.me
-build-type:      Simple
+build-type:      Custom
 extra-doc-files: CHANGELOG.md
-data-files: stdlib/*.ch
+
+custom-setup
+    setup-depends: base ^>=4.21.0.0,
+                   Cabal,
+                   directory,
+                   filepath
 
 common warnings
     ghc-options: -Wall

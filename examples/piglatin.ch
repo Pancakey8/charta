@@ -1,3 +1,5 @@
+use "io"
+
 fn words (str) {
 ↓ ↓                                     ←
 → [·] ⊡ ⊢! ? ⊢! ⇈ #  ≠ ? ∅ ⇓ ▭s [⇆] ⊡ ⇑ ↑ {# loop until the string is empty #}

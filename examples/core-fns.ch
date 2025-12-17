@@ -1,3 +1,5 @@
+use "io"
+
 fn stack-ops () {
 ↓ {# test ⇈ ∅ ↕ ↻ ↷ ⊼ #}
 → 3 ⇈ 3 ≠ ? 3 ≠ ? ↓

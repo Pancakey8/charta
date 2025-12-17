@@ -323,21 +323,12 @@ applyLocal ctx runner (ValFn func@(Defined args body):ValStack s:vs) =
 applyLocal _ _ _ = error "Apply local expected function & stack"
 
 -- I/O
-put :: [Value] -> IO [Value]
-put []                  = return []
-put (ValChar c:vs)      = putStrLn [c] >> return vs
-put (ValBool True:vs)   = putStrLn "⊤" >> return vs
-put (ValBool False:vs)  = putStrLn "⊥" >> return vs
-put (ValNum n:vs)       = print n >> return vs
-put (v@(ValFn _):vs)    = print (stringified v) >> return vs
-put (v@(ValStack _):vs) = putStrLn (stringified v) >> return vs
-
 debug :: [Value] -> IO [Value]
 debug vs = mapM_ (putStrLn . stringified) vs >> return vs
 
 panic :: [Value] -> IO [Value]
 panic []    = putStrLn "Panic triggered without a message" >> exitFailure
-panic (v:_) = putStrLn "Panic triggered: " >> put [v] >> exitFailure
+panic (v:_) = putStrLn ("Panic triggered: \n" ++ stringified v) >> exitFailure
 
 coreTable :: FuncTable
 coreTable = M.fromList $ concatMap (\(names, args, fn) -> [ (name, Internal args fn) | name <- names ]) [
@@ -388,7 +379,6 @@ coreTable = M.fromList $ concatMap (\(names, args, fn) -> [ (name, Internal args
   (["¿char", "isChar"], Limited 1, isChar),
   (["¿stk", "isStk"], Limited 1, isStack),
   (["¿fn", "isFn"], Limited 1, isFn),
-  (["put"], Limited 1, put),
   (["⚠", "dbg"], Ellipses 0, debug), -- \warning
   (["⊗", "pnc"], Ellipses 0, panic) -- \otimes
   ] ++ concatMap (\(names, args, fn) -> [ (name, Mixed args fn) | name <- names ]) [

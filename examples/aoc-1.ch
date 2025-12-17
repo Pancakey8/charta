@@ -1,3 +1,5 @@
+use "io"
+
 fn lines' (str) {
 ↓ {# Break if empty #}          {# Collect current line #}
                                 {# Continue recursively #}

@@ -1,6 +1,6 @@
 fn get-line () {
 ↓    ←
-get
+∈
 ⇈
 #\n
 ≠
@@ -8,4 +8,8 @@ get
 ∅
 ⇆
 ▭s
+}
+
+fn put (s) {
+→ ∋ #\n ∋
 }

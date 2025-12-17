@@ -5,15 +5,15 @@ import           Data.Foldable     (forM_, for_)
 import qualified Data.Map          as M
 import           IRPasses          (foregoPos)
 import           Parser            (TopLevel (FuncDecl, UseDrv), parseProgram)
-import           Paths_charta
 import           StdLib            (stdTable)
 import           System.Directory  (doesFileExist)
 import           System.FilePath   (addExtension, dropFileName, hasExtension,
-                                    takeFileName, (</>))
+                                    takeFileName, (</>), takeDirectory)
 import           Text.Parsec       (parse)
 import qualified Traverser
 import           Traverser         (EmitterError (..), Grid (Grid),
                                     Instruction (..), runEmitter)
+import System.Environment (getExecutablePath)
 
 data SourceTree = Source (M.Map String Function) [SourceTree]
                 | Namespace String SourceTree
@@ -40,33 +40,37 @@ modifyChild src@(Source _ _) f = f src
 modifyChild (Namespace _ t) f  = modifyChild t f
 
 buildSource :: FilePath -> IO SourceTree
-buildSource entry = buildSource' entry $ dropFileName entry
+buildSource entry = buildSource' False entry $ dropFileName entry
 
 sourceFile :: FilePath -> FilePath
 sourceFile file = if hasExtension file then file else addExtension file ".ch"
 
-buildSource' :: FilePath -> FilePath -> IO SourceTree
-buildSource' file root = do
+buildSource' :: Bool -> FilePath -> FilePath -> IO SourceTree
+buildSource' appendRoot file root = do
   let source = sourceFile file
-  sourceExists <- doesFileExist source
+      source' = if appendRoot then root </> source else source
+  sourceExists <- doesFileExist source'
   if sourceExists
     then do
-      res <- parse parseProgram "" <$> readFile source
+      res <- parse parseProgram "" <$> readFile source'
       case res of
         Left e -> error $ show e
         Right tls -> do
           buildFromTLs tls root
     else do
-      stdlib <- try (getDataFileName ("stdlib" </> source)) :: IO (Either IOException FilePath)
-      case stdlib of
-        Left _ -> error $ "Failed to find package '" ++ show file ++ "'"
-        Right fp -> do
-          res <- parse parseProgram "" <$> readFile fp
-          case res of
-            Left e -> error $ show e
-            Right tls -> do
+      exeDir <- takeDirectory <$> getExecutablePath
+      let stdlib = exeDir </> "stdlib" </> source
+      stdExists <- doesFileExist stdlib
+      if stdExists
+      then do
+        res <- parse parseProgram "" <$> readFile stdlib
+        case res of
+          Left e -> error $ show e
+          Right tls ->
+            do
               (Source m ts)<- buildFromTLs tls root
               return $ Source (m `M.union` (stdTable M.! takeFileName file)) ts
+      else error $ "Failed to find package '" ++ show file ++ "'"
 
 buildFromTLs :: [TopLevel] -> FilePath -> IO SourceTree
 buildFromTLs tls root = go tls M.empty []
@@ -75,7 +79,7 @@ buildFromTLs tls root = go tls M.empty []
       return $ Source funcs imports
 
     go (UseDrv pkg ns : rest) funcs imports = do
-      pkgTree <- buildSource' (root </> pkg) root
+      pkgTree <- buildSource' True pkg root
       let wrapped =
             case ns of
               Nothing    -> pkgTree
