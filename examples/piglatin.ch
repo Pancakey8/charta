@@ -32,5 +32,5 @@ fn unwords (...) {
 }
 
 fn main () {
-→ "man is condemned to be free" words pigLatin unwords ⚠
+→ "man is condemned to be free" words pigLatin unwords put
 }
