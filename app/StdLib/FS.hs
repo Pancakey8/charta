@@ -2,10 +2,13 @@ module StdLib.FS where
 import Core
 import qualified Data.Map as M
 import Parser (Arguments(..))
-import System.IO (Handle, openFile, IOMode (ReadMode), hGetContents, hClose, hFileSize, hTell, hPutStr, hGetChar)
+import System.IO (Handle, openFile, IOMode (ReadMode), hGetContents, hClose, hFileSize, hTell, hPutStr, hGetChar, hSeek, SeekMode (AbsoluteSeek))
 import Data.Dynamic (toDyn, fromDynamic)
 import GHC.IO.IOMode (IOMode(..))
-import GHC.Float (int2Double)
+import GHC.Float (int2Double, double2Int)
+import Control.Exception (IOException, try)
+import System.IO.Error (ioeGetErrorType)
+import GHC.IO.Exception (IOErrorType(EOF))
 
 openFS :: IOMode -> [Value] -> IO [Value]
 openFS mode (ValStack s:vs) =
@@ -15,15 +18,6 @@ openFS mode (ValStack s:vs) =
       return $ ValAbstract (Abs (toDyn h)):vs
     Nothing -> error "openFS: Expected string, got stack"
 openFS _ _ = error "openFS: Expected string"
-
-slurp :: [Value] -> IO [Value]
-slurp stk@(ValAbstract (Abs a):vs) =
-  case fromDynamic a :: Maybe Handle of
-    Just fs -> do
-      str <- hGetContents fs
-      return $ ValStack (map ValChar str):stk
-    Nothing -> error "slurp: Expected file-stream, got abstract"
-slurp _ = error "slurp: Expected file-stream"
 
 closeFS :: [Value] -> IO [Value]
 closeFS (ValAbstract (Abs a):vs) =
@@ -52,6 +46,15 @@ tellFS stk@(ValAbstract (Abs a):vs) =
     Nothing -> error "tellFS: Expected file-stream, got abstract"
 tellFS _ = error "tellFS: Expected file-stream"
 
+seekFS :: [Value] -> IO [Value]
+seekFS ((ValNum n):stk@(ValAbstract (Abs a):vs)) =
+  case fromDynamic a :: Maybe Handle of
+    Just fs -> do
+      hSeek fs AbsoluteSeek $ toInteger $ double2Int n
+      return stk
+    Nothing -> error "seekFS: Expected file-stream, got abstract"
+seekFS _ = error "seekFS: Expected number and file-stream"
+
 printFS :: [Value] -> IO [Value]
 printFS (v:stk@(ValAbstract (Abs a):vs)) =
   case fromDynamic a :: Maybe Handle of
@@ -65,8 +68,13 @@ readFS :: [Value] -> IO [Value]
 readFS stk@(ValAbstract (Abs a):vs) =
   case fromDynamic a :: Maybe Handle of
     Just fs -> do
-      c <- hGetChar fs
-      return $ ValChar c:stk
+      res <- try (hGetChar fs) :: IO (Either IOException Char)
+      case res of
+        Left e ->
+          if ioeGetErrorType e == EOF
+          then return $ ValChar '\0':stk
+          else ioError e
+        Right c -> return $ ValChar c:stk
     Nothing -> error "readFS: Expected file-stream, got abstract"
 readFS _ = error "readFS: Expected file-stream"
 
@@ -78,7 +86,7 @@ table = M.fromList $ concatMap (\(names, args, fn) -> [ (name, Internal args fn)
   (["∋", "print"], Limited 2, printFS), 
   (["∈", "read"], Limited 1, readFS), 
   (["sz"], Limited 1, sizeFS),
+  (["sk"], Limited 2, seekFS),
   (["tell"], Limited 1, tellFS),
-  (["×", "close"], Limited 1, closeFS), -- \times
-  (["Σ", "slurp"], Limited 1, slurp) -- \Sigma
+  (["×", "close"], Limited 1, closeFS) -- \times
   ]
