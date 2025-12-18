@@ -117,6 +117,6 @@ flattenTree tree = go tree ""
 
         rewriteTerm ns (Call x) = Call $ getName ns x
         rewriteTerm ns (PushFn x) = PushFn $ getName ns x
-        rewriteTerm ns (PushFnVal is) = PushFnVal $ map (rewriteTerm ns) is
+        rewriteTerm ns (PushFnVal args is) = PushFnVal args $ map (rewriteTerm ns) is
         rewriteTerm _ x = x
     go (Namespace ns' t) ns = go t (ns ++ ns' ++ ".")

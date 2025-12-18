@@ -17,7 +17,7 @@ data ItemValue = ItNum Double
                | StrLit String
                | CharLit Char
                | FnRef String
-               | FnVal [Item]
+               | FnVal Arguments [Item]
                | Space
                | LineEnd
                deriving (Show, Eq)
@@ -102,11 +102,19 @@ fnVal :: Parser Item
 fnVal = do
   start <- getPosition
   void $ char '['
+  spaces
+  void $ char '('
+  args <- many $ spaces *> sym <* spaces
+  void $ char ')'
+  spaces
   g <- grid
   void $ char ']'
   end <- getPosition
   when (length g > 1) $ unexpected "Multiline function values not allowed"
-  return Item { len = sourceColumn end - sourceColumn start, val = FnVal (head g) }
+  case lastMaybe args of
+    Just (Item { val = Sym "..." }) -> return Item { len = sourceColumn end - sourceColumn start, val = FnVal (Ellipses $ length args - 1) (head g) }
+    _ -> return Item { len = sourceColumn end - sourceColumn start, val = FnVal (Limited $ length args) (head g) }
+  
 
 lineBreak :: Parser Item
 lineBreak = do
@@ -131,7 +139,7 @@ grid = do
 
 data Arguments = Limited Int
                | Ellipses Int
-               deriving (Show)
+               deriving (Show, Eq)
 data Visibility = Visible | Hidden
                 deriving (Show, Eq)
 type Function = (String, Arguments, [[Item]], Visibility)

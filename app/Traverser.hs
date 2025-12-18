@@ -5,7 +5,7 @@ import           Data.List     (find)
 import           Data.Maybe    (fromJust, maybeToList)
 import qualified Data.Set      as S
 import           Debug.Trace   (trace)
-import           Parser        (Item (..), ItemValue (..))
+import           Parser        (Arguments, Item (..), ItemValue (..))
 
 newtype Grid = Grid [[Item]]
              deriving (Show)
@@ -32,7 +32,7 @@ data Instruction = Call String
                  | PushStr String
                  | PushChar Char
                  | PushFn String
-                 | PushFnVal [Instruction]
+                 | PushFnVal Arguments [Instruction]
                  | Label String
                  | PosMarker Pos Int -- Pos, length
                  | Goto String
@@ -42,18 +42,18 @@ data Instruction = Call String
                  deriving (Eq)
 
 instance Show Instruction where
-  show (Call s)        = "Call " ++ s
-  show (PushFn s)      = "PushFn " ++ s
-  show (PushFnVal is)      = "PushFnVal " ++ show is
-  show (PushStr s)     = "PushStr " ++ show s
-  show (PushChar c)    = "PushChar " ++ show c
-  show (PushNum n)     = "PushNum " ++ show n
-  show (Label s)       = "Label " ++ show s
-  show (Goto s)        = "Goto " ++ show s
-  show (JumpTrue s)    = "JumpTrue " ++ show s
-  show Exit            = "Exit"
-  show (PosMarker p i) = "PosMarker " ++ show p ++ " " ++ show i
-  show (GotoPos p)     = "GotoPos " ++ show p
+  show (Call s)            = "Call " ++ s
+  show (PushFn s)          = "PushFn " ++ s
+  show (PushFnVal args is) = "PushFnVal " ++ show args ++ " " ++ show is
+  show (PushStr s)         = "PushStr " ++ show s
+  show (PushChar c)        = "PushChar " ++ show c
+  show (PushNum n)         = "PushNum " ++ show n
+  show (Label s)           = "Label " ++ show s
+  show (Goto s)            = "Goto " ++ show s
+  show (JumpTrue s)        = "JumpTrue " ++ show s
+  show Exit                = "Exit"
+  show (PosMarker p i)     = "PosMarker " ++ show p ++ " " ++ show i
+  show (GotoPos p)         = "GotoPos " ++ show p
 
 data EmitterError = Err { posn :: Pos, what :: String }
                   deriving (Show)
@@ -156,11 +156,11 @@ traverse grid initPos = void $ go initPos (1, 0) S.empty
               CharLit c -> do
                 emit $ PushChar c
                 go pos' dir emitted'
-              FnVal its ->
-                case runEmitter (Traverser.traverse (Grid [its]) (0, 0)) [] of 
+              FnVal args its ->
+                case runEmitter (Traverser.traverse (Grid [its]) (0, 0)) [] of
                   Left e -> throwEmit e >> return emitted'
                   Right (_, is) -> do
-                    emit $ PushFnVal is
+                    emit $ PushFnVal args is
                     go pos' dir emitted'
               FnRef s -> do
                 emit $ PushFn s
