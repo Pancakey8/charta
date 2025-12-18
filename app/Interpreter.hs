@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 module Interpreter where
 
 import qualified Data.Map    as M
@@ -9,17 +10,18 @@ import           Debug.Trace (trace)
 import           Parser      (Arguments (..))
 import           Traverser   (Instruction (..))
 import qualified Data.IntMap as IM
+import qualified Data.Vector as V
 
 run :: Context -> IO Context
 run ctx = -- trace (show ctx) $
   case frames ctx of
     [] -> return ctx
     f:fs ->
-      let instr = prog f !! pc f
+      let instr = prog f V.! pc f
       in if instr == Exit
          then -- trace (show f) $
            case fs of
-             f':fs' -> run ctx { frames = f' { pc = pc f' + 1, stack = stack f ++ stack f' } : fs' }
+             f':fs' -> let !stk = stack f ++ stack f' in run ctx { frames = f' { pc = pc f' + 1, stack = stk  } : fs' }
              []    -> return ctx
          else step instr ctx >>= run
 
@@ -71,7 +73,7 @@ step i ctx = -- trace (show $ stack ctx) $
 
     PushFn f -> advance $ modifyStack ctx $ \stk -> ValFn (fns ctx M.! f) : stk
 
-    PushFnVal args is -> advance $ modifyStack ctx $ \stk -> ValFn (Defined args is) : stk
+    PushFnVal args is -> advance $ modifyStack ctx $ \stk -> ValFn (Defined args $ V.fromList is) : stk
 
     Label _       -> advance ctx
 
@@ -92,7 +94,7 @@ step i ctx = -- trace (show $ stack ctx) $
     performGo :: String -> Context -> IO Context
     performGo label ctx' = let f:fs = frames ctx'
                                n = fst $ fromJust $ find ((==Label label) . snd) $
-                                   zip [0..] (prog f)
+                                   zip [0..] (V.toList $ prog f)
                           in return ctx' { frames = f { pc = n } : fs }
 
 runProgram :: FuncTable -> IO Context

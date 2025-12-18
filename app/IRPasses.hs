@@ -5,6 +5,7 @@ import           Core       (Function (Defined))
 import qualified Data.Map   as M
 import           Data.Maybe (mapMaybe)
 import           Traverser
+import qualified Data.Vector as V
 
 -- Cleans up PosMarker & GotoPos
 foregoPos :: [Instruction] -> [Instruction]
@@ -23,5 +24,5 @@ foregoPos instrs = concatMap (\case
 
 doPasses :: M.Map String Function -> M.Map String Function
 doPasses = M.map (\case
-                     Defined args is -> Defined args (foregoPos is)
+                     Defined args is -> Defined args (V.fromList $ foregoPos $ V.toList is)
                      x -> x)

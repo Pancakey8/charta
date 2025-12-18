@@ -26,7 +26,8 @@ executable charta
                       parsec,
                       containers,
                       filepath,
-                      directory
+                      directory,
+                      vector
     hs-source-dirs:   app
     other-modules:    Parser,
                       Traverser,

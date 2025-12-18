@@ -15,6 +15,7 @@ import qualified Traverser
 import           Traverser         (EmitterError (..), Grid (Grid),
                                     Instruction (..), runEmitter)
 import System.Environment (getExecutablePath)
+import qualified Data.Vector as V
 
 data SourceTree = Source (M.Map String (Visibility, Function)) [SourceTree]
                 | Namespace String SourceTree
@@ -93,7 +94,7 @@ buildFromTLs tls root = go tls M.empty []
           putStrLn $ "In '" ++ name ++ "', at position " ++ show (posn e)
           error $ what e
         Right (_, instrs) -> do
-          let func = Defined args (foregoPos instrs)
+          let func = Defined args $ V.fromList instrs
           go rest (M.insert name (vis, func) funcs) imports
 
 flattenTree :: SourceTree -> M.Map String Function
@@ -112,7 +113,7 @@ flattenTree tree = go tree ""
                               (Hidden, _) -> ns ++ name ++ "(hidden)"
                           else name
 
-        rewrite ns fname (v, Defined args instrs) = (v, Defined args $ map (rewriteTerm ns) instrs)
+        rewrite ns fname (v, Defined args instrs) = (v, Defined args $ V.map (rewriteTerm ns) instrs)
         rewrite _ _ (v, f) = (v, f)
 
         rewriteTerm ns (Call x) = Call $ getName ns x

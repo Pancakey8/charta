@@ -1,20 +1,20 @@
 {-# LANGUAGE LambdaCase #-}
 module Core where
 
-import           Data.Char   (ord)
-import           Data.Fixed  (mod')
-import           Data.List   (intercalate)
-import qualified Data.Map    as M
-import           Data.Maybe  (isJust)
-import           GHC.Float   (double2Int, int2Double)
-import           Parser      (Arguments (..), Item (..), ItemValue (..), num)
-import           System.Exit (exitFailure)
-import           Text.Parsec (parse)
-import           Traverser   (Instruction)
-import qualified Data.IntMap as IM
-import Data.Dynamic (Dynamic)
+import           Data.Char    (ord)
+import           Data.Dynamic (Dynamic)
+import           Data.Fixed   (mod')
+import           Data.List    (intercalate)
+import qualified Data.Map     as M
+import           Data.Maybe   (isJust)
+import qualified Data.Vector  as V
+import           GHC.Float    (double2Int, int2Double)
+import           Parser       (Arguments (..), Item (..), ItemValue (..), num)
+import           System.Exit  (exitFailure)
+import           Text.Parsec  (parse)
+import           Traverser    (Instruction)
 
-data Function = Defined Arguments [Instruction]
+data Function = Defined Arguments (V.Vector Instruction)
               | Internal Arguments ([Value] -> IO [Value])
               | Mixed Arguments (Context -> Runner -> [Value] -> IO [Value])
 
@@ -22,13 +22,13 @@ instance Eq Function where
   _ == _ = False
 
 instance Show Function where
-  show (Defined {})  = "<user-defined fn>"
+  show (Defined {})   = "<user-defined fn>"
   show (Internal _ _) = "<internal fn>"
   show (Mixed _ _)    = "<internal fn>"
 
 type FuncTable = M.Map String Function
 
-data Frame = Frame { prog :: [Instruction], pc :: Int, stack :: [Value] }
+data Frame = Frame { prog :: V.Vector Instruction, pc :: Int, stack :: [Value] }
            deriving (Show)
 
 data Context = Ctx { frames :: [Frame], fns :: FuncTable }
@@ -42,20 +42,20 @@ instance Eq Abstract where
 instance Show Abstract where
   show _ = "<abstract>"
 
-data Value = ValNum Double
-           | ValBool Bool
-           | ValChar Char
+data Value = ValNum {-# UNPACK #-} !Double
+           | ValBool !Bool
+           | ValChar !Char
            | ValStack [Value]
            | ValFn Function
            | ValAbstract Abstract
            deriving (Show, Eq)
 
 truthy :: Value -> Bool
-truthy (ValNum n)    = n /= 0
-truthy (ValBool b)   = b
-truthy (ValStack vs) = not $ null vs
-truthy (ValChar ch)  = ch /= '\0'
-truthy (ValFn _)     = True
+truthy (ValNum n)      = n /= 0
+truthy (ValBool b)     = b
+truthy (ValStack vs)   = not $ null vs
+truthy (ValChar ch)    = ch /= '\0'
+truthy (ValFn _)       = True
 truthy (ValAbstract _) = True
 
 maybeString :: [Value] -> Maybe String
@@ -304,13 +304,25 @@ argCount :: Arguments -> Int
 argCount (Limited n)  = n
 argCount (Ellipses n) = n
 
+atLeast :: Int -> [a] -> Bool
+atLeast 0 _ = True
+atLeast _ [] = False
+atLeast k (_:xs) = atLeast (k-1) xs
+
 withArgs :: String -> Arguments -> [Value] -> ([Value] -> IO a) -> IO a
-withArgs fname (Limited n) vs f = if length vs < n
-                                  then error $ "'" ++ fname ++ "' expects " ++ show n ++ " arguments, found " ++ show (length vs)
-                                  else f $ take n vs
-withArgs fname (Ellipses n) vs f = if length vs < n
-                                   then error $ "'" ++ fname ++ "' expects at least " ++ show n ++ " arguments, found " ++ show (length vs)
-                                   else f $ take n vs ++ [ValStack (drop n vs)]
+withArgs fname (Limited n) vs f
+  | not (atLeast n vs) =
+      error $
+        "'" ++ fname ++ "' expects " ++ show n ++ " arguments"
+  | otherwise =
+      f (take n vs)
+
+withArgs fname (Ellipses n) vs f
+  | not (atLeast n vs) =
+      error $
+        "'" ++ fname ++ "' expects at least " ++ show n ++ " arguments"
+  | otherwise =
+      f (take n vs ++ [ValStack (drop n vs)])
 
 apply :: Context -> Runner -> [Value] -> IO [Value]
 apply _ _ (ValFn func@(Internal args f):vs) = withArgs (show func) args vs $ \_ -> f vs
@@ -341,7 +353,7 @@ stringified' :: Value -> String
 stringified' (ValStack s) =
   case maybeString s of
     Just str -> "\"" ++ str ++ "\""
-    Nothing -> stringified (ValStack s)
+    Nothing  -> stringified (ValStack s)
 stringified' v = stringified v
 
 debug :: [Value] -> IO [Value]
