@@ -8,6 +8,7 @@ import           Data.Maybe  (fromJust)
 import           Debug.Trace (trace)
 import           Parser      (Arguments (..))
 import           Traverser   (Instruction (..))
+import qualified Data.IntMap as IM
 
 run :: Context -> IO Context
 run ctx = -- trace (show ctx) $

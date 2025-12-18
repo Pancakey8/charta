@@ -11,6 +11,8 @@ import           Parser      (Arguments (..), Item (..), ItemValue (..), num)
 import           System.Exit (exitFailure)
 import           Text.Parsec (parse)
 import           Traverser   (Instruction)
+import qualified Data.IntMap as IM
+import Data.Dynamic (Dynamic)
 
 data Function = Defined Arguments [Instruction]
               | Internal Arguments ([Value] -> IO [Value])
@@ -32,11 +34,20 @@ data Frame = Frame { prog :: [Instruction], pc :: Int, stack :: [Value] }
 data Context = Ctx { frames :: [Frame], fns :: FuncTable }
              deriving (Show)
 
+newtype Abstract = Abs Dynamic
+
+instance Eq Abstract where
+  _ == _ = False
+
+instance Show Abstract where
+  show _ = "<abstract>"
+
 data Value = ValNum Double
            | ValBool Bool
            | ValChar Char
            | ValStack [Value]
            | ValFn Function
+           | ValAbstract Abstract
            deriving (Show, Eq)
 
 truthy :: Value -> Bool
@@ -45,6 +56,7 @@ truthy (ValBool b)   = b
 truthy (ValStack vs) = not $ null vs
 truthy (ValChar ch)  = ch /= '\0'
 truthy (ValFn _)     = True
+truthy (ValAbstract _) = True
 
 maybeString :: [Value] -> Maybe String
 maybeString = mapM (\case
@@ -62,6 +74,7 @@ numeric (ValStack s) =
                   _ -> error "Failed conversion stack->number"
     Nothing -> error "Failed conversion stack->number"
 numeric (ValFn _) = error "Failed conversion fn->number"
+numeric (ValAbstract _) = error "Failed conversion abstract->int"
 
 stringified :: Value -> String
 stringified (ValChar c)  = [c]
@@ -72,6 +85,7 @@ stringified (ValStack s) =
     Just str -> str
     Nothing  -> "[" ++ intercalate ", " (map stringified s) ++ "]"
 stringified (ValFn _)    = "<fn>"
+stringified (ValAbstract _) = "<abstract>"
 
 -- Stack ops
 dup :: [Value] -> IO [Value]

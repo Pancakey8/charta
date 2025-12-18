@@ -25,3 +25,6 @@ test_for "examples/core-fns.ch" "stack-ops:\nOK\nstack-ops-2:\nOK\narithmetics-c
 test_for "examples/map.ch" "[6.0, 5.0, 4.0, 3.0, 2.0]\nPanic triggered: \nMap expects 1↦1 function"
 test_for "examples/std-strings.ch" "test-len: OK\ntest-pfx: OK\ntest-sfx: OK\ntest-split: OK"
 test_for "examples/lambdas.ch" "[6.0, 5.0, 4.0, 3.0, 2.0]"
+test_for "examples/std-fs.ch" "OK"
+
+rm "std-fs.txt"

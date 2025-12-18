@@ -35,6 +35,7 @@ executable charta
                       Core,
                       ProgramBuilder,
                       StdLib,
-                      StdLib.IO
+                      StdLib.IO,
+                      StdLib.FS
     default-language: Haskell2010
 
