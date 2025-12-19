@@ -38,6 +38,7 @@ data Instruction = Call String
                  | Goto String
                  | GotoPos Pos
                  | JumpTrue String
+                 | ForkTo String
                  | Exit
                  deriving (Eq)
 
@@ -54,6 +55,7 @@ instance Show Instruction where
   show Exit                = "Exit"
   show (PosMarker p i)     = "PosMarker " ++ show p ++ " " ++ show i
   show (GotoPos p)         = "GotoPos " ++ show p
+  show (ForkTo l)          = "Fork " ++ show l
 
 data EmitterError = Err { posn :: Pos, what :: String }
                   deriving (Show)
@@ -177,8 +179,20 @@ traverse grid initPos = void $ go initPos (1, 0) S.empty
                     emit $ Label branchLabel
                     emittedSuc <- go success dir' emitted'
                     return $ emittedFail `S.union` emittedSuc
-                  bs -> trace (show bs) $ do
+                  bs -> do
                     throwEmit $ Err { posn = pos, what = "Branch expects 1 outgoing direction, found " ++ show (length bs) }
+                    return emitted'
+              Fork ->
+                case branches grid pos dir of
+                  [(dir', success)] -> do
+                    let branchLabel = "F_" ++ show pos
+                    emit $ ForkTo branchLabel
+                    emittedFail <- go pos' dir emitted'
+                    emit $ Label branchLabel
+                    emittedSuc <- go success dir' emitted'
+                    return $ emittedFail `S.union` emittedSuc
+                  bs -> do
+                    throwEmit $ Err { posn = pos, what = "Fork expects 1 outgoing direction, found " ++ show (length bs) }
                     return emitted'
               LineEnd -> error "LineEnd unreachable at traversal"
             where

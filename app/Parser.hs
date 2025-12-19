@@ -13,6 +13,7 @@ data ItemValue = ItNum Double
                | DirUp
                | DirDown
                | Branch
+               | Fork
                | Sym String
                | StrLit String
                | CharLit Char
@@ -43,11 +44,12 @@ specials = do
          <|> (char '↓' >> return DirDown) -- \downarrow
          <|> (char '↑' >> return DirUp) -- \uparrow
          <|> (char '?' >> return Branch)
+         <|> (char '⋔' >> return Fork)
   return Item { len = 1, val = dir }
 
 sym :: Parser Item
 sym = do
-  symStr <- many1 $ satisfy (\c -> not (isSpace c) && c `notElem` "←→↑↓?{}()\"#[]")
+  symStr <- many1 $ satisfy (\c -> not (isSpace c) && c `notElem` "←→↑↓?⋔{}()\"#[]")
   return Item { len = length symStr, val = Sym symStr }
 
 space :: Parser Item

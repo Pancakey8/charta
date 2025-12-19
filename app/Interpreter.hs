@@ -1,16 +1,18 @@
 {-# LANGUAGE BangPatterns #-}
 module Interpreter where
 
-import qualified Data.Map    as M
+import qualified Data.Map                 as M
 
+import           Control.Concurrent.Async (async)
 import           Core
-import           Data.List   (find)
-import           Data.Maybe  (fromJust)
-import           Debug.Trace (trace)
-import           Parser      (Arguments (..))
-import           Traverser   (Instruction (..))
-import qualified Data.IntMap as IM
-import qualified Data.Vector as V
+import           Data.Dynamic             (toDyn)
+import qualified Data.IntMap              as IM
+import           Data.List                (find)
+import           Data.Maybe               (fromJust)
+import qualified Data.Vector              as V
+import           Debug.Trace              (trace)
+import           Parser                   (Arguments (..))
+import           Traverser                (Instruction (..))
 
 run :: Context -> IO Context
 run ctx = -- trace (show ctx) $
@@ -84,6 +86,12 @@ step i ctx = -- trace (show $ stack ctx) $
                      in if truthy top
                         then performGo l ctx'
                         else advance ctx'
+
+    ForkTo l -> do
+      side <- async $ do
+        lbl <- performGo l ctx
+        run lbl { frames = [head (frames lbl)] }
+      advance $ modifyStack ctx $ \stk -> ValAbstract (Abs $ toDyn side) : stk
 
     GotoPos _     -> error "Impossible instruction hit"
     PosMarker _ _ -> error "Impossible instruction hit"

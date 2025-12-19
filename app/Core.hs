@@ -2,7 +2,7 @@
 module Core where
 
 import           Data.Char    (ord)
-import           Data.Dynamic (Dynamic)
+import           Data.Dynamic (Dynamic, fromDynamic)
 import           Data.Fixed   (mod')
 import           Data.List    (intercalate)
 import qualified Data.Map     as M
@@ -13,6 +13,7 @@ import           Parser       (Arguments (..), Item (..), ItemValue (..), num)
 import           System.Exit  (exitFailure)
 import           Text.Parsec  (parse)
 import           Traverser    (Instruction)
+import Control.Concurrent.Async (wait, Async)
 
 data Function = Defined Arguments (V.Vector Instruction)
               | Internal Arguments ([Value] -> IO [Value])
@@ -364,6 +365,15 @@ panic :: [Value] -> IO [Value]
 panic []    = putStrLn "Panic triggered without a message" >> exitFailure
 panic (v:_) = putStrLn ("Panic triggered: \n" ++ stringified v) >> exitFailure
 
+joinAsync :: [Value] -> IO [Value]
+joinAsync (ValAbstract (Abs a):vs) =
+  case fromDynamic a :: Maybe (Async Context) of
+    Just td -> do
+      ctx <- wait td
+      let stk = stack $ head $ frames ctx
+      return $ stk ++ vs
+    Nothing -> error "join: Expected async, found abstract"
+
 coreTable :: FuncTable
 coreTable = M.fromList $ concatMap (\(names, args, fn) -> [ (name, Internal args fn) | name <- names ]) [
   (["⇈", "dup"], Limited 1, dup), -- \upuparrows
@@ -414,7 +424,8 @@ coreTable = M.fromList $ concatMap (\(names, args, fn) -> [ (name, Internal args
   (["¿stk", "is-stk"], Limited 1, isStack),
   (["¿fn", "is-fn"], Limited 1, isFn),
   (["⚠", "dbg"], Ellipses 0, debug), -- \warning
-  (["⊗", "pnc"], Ellipses 0, panic) -- \otimes
+  (["⊗", "pnc"], Ellipses 0, panic), -- \otimes
+  (["≻", "join"], Limited 1, joinAsync)
   ] ++ concatMap (\(names, args, fn) -> [ (name, Mixed args fn) | name <- names ]) [
   (["∘", "ap"], Ellipses 1, apply), -- \circ
   (["⊡", "sap"], Ellipses 1, applyLocal) -- \dotsquare
