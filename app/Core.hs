@@ -1,23 +1,26 @@
 {-# LANGUAGE LambdaCase #-}
 module Core where
 
-import           Data.Char    (ord)
-import           Data.Dynamic (Dynamic, fromDynamic)
-import           Data.Fixed   (mod')
-import           Data.List    (intercalate)
-import qualified Data.Map     as M
-import           Data.Maybe   (isJust)
-import qualified Data.Vector  as V
-import           GHC.Float    (double2Int, int2Double)
-import           Parser       (Arguments (..), Item (..), ItemValue (..), num)
-import           System.Exit  (exitFailure)
-import           Text.Parsec  (parse)
-import           Traverser    (Instruction)
-import Control.Concurrent.Async (wait, Async)
+import           Control.Concurrent.Async (Async, wait)
+import           Data.Char                (ord)
+import           Data.Dynamic             (Dynamic, fromDynamic)
+import           Data.Fixed               (mod')
+import           Data.List                (intercalate)
+import qualified Data.Map                 as M
+import           Data.Maybe               (isJust)
+import qualified Data.Vector              as V
+import           Foreign                  (FunPtr)
+import           GHC.Float                (double2Int, int2Double)
+import           Parser                   (Arguments (..), Item (..),
+                                           ItemValue (..), num)
+import           System.Exit              (exitFailure)
+import           Text.Parsec              (parse)
+import           Traverser                (Instruction)
 
 data Function = Defined Arguments (V.Vector Instruction)
               | Internal Arguments ([Value] -> IO [Value])
               | Mixed Arguments (Context -> Runner -> [Value] -> IO [Value])
+              | External (FunPtr ()) Int
 
 instance Eq Function where
   _ == _ = False
@@ -26,6 +29,7 @@ instance Show Function where
   show (Defined {})   = "<user-defined fn>"
   show (Internal _ _) = "<internal fn>"
   show (Mixed _ _)    = "<internal fn>"
+  show (External _ _)      = "<foreign fn>"
 
 type FuncTable = M.Map String Function
 
@@ -306,8 +310,8 @@ argCount (Limited n)  = n
 argCount (Ellipses n) = n
 
 atLeast :: Int -> [a] -> Bool
-atLeast 0 _ = True
-atLeast _ [] = False
+atLeast 0 _      = True
+atLeast _ []     = False
 atLeast k (_:xs) = atLeast (k-1) xs
 
 withArgs :: String -> Arguments -> [Value] -> ([Value] -> IO a) -> IO a

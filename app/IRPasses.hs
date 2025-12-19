@@ -22,7 +22,7 @@ foregoPos instrs = concatMap (\case
                        GotoPos p -> Just p
                        _ -> Nothing) instrs
 
-doPasses :: M.Map String Function -> M.Map String Function
-doPasses = M.map (\case
-                     Defined args is -> Defined args (V.fromList $ foregoPos $ V.toList is)
-                     x -> x)
+doPasses :: Function -> Function
+doPasses f = case f of 
+               Defined args is -> Defined args (V.fromList $ foregoPos $ V.toList is)
+               _ -> f

@@ -28,7 +28,8 @@ executable charta
                       filepath,
                       directory,
                       vector,
-                      async
+                      async,
+                      libffi
     hs-source-dirs:   app
     other-modules:    Parser,
                       Traverser,
@@ -38,6 +39,12 @@ executable charta
                       ProgramBuilder,
                       StdLib,
                       StdLib.IO,
-                      StdLib.FS
+                      StdLib.FS,
+                      FFI,
+    if os(windows)
+      -- TODO
+    else
+      build-depends: unix
+      other-modules: FFI.Unix
     default-language: Haskell2010
 

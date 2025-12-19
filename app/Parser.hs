@@ -148,11 +148,34 @@ type Function = (String, Arguments, [[Item]], Visibility)
 
 data TopLevel = FuncDecl Function
               | UseDrv String (Maybe String)
+              | FFIDecl FFIFunc
 
 lastMaybe :: [a] -> Maybe a
 lastMaybe []     = Nothing
 lastMaybe [x]    = pure x
 lastMaybe (x:xs) = lastMaybe xs
+
+type FFIFunc = (String, String, Int)
+
+ffiFunc :: Parser FFIFunc
+ffiFunc = do
+  void $ string "ffi"
+  spaces
+  Item { val = StrLit lib } <- strLit
+  spaces
+  void $ string "fn"
+  spaces
+  Item { val = Sym name } <- sym
+  spaces
+  void $ char '('
+  args <- many $ spaces *> sym <* spaces
+  void $ char ')'
+  spaces
+  void $ string "->"
+  spaces
+  Item { val = Sym ret } <- sym
+  spaces
+  return (lib, name, length args)
 
 func :: Parser Function
 func = do
@@ -188,7 +211,7 @@ useDrv = do
   return $ UseDrv s ns
 
 topLevel :: Parser TopLevel
-topLevel = (FuncDecl <$> func) <|> useDrv
+topLevel = try (FuncDecl <$> func) <|> try (FFIDecl <$> ffiFunc) <|> useDrv
 
 parseProgram :: Parser [TopLevel]
 parseProgram = do
