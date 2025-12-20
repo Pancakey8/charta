@@ -41,7 +41,9 @@ internals = M.fromList $ concatMap (\(names, maps) -> [ (name, Bhv maps) | name 
     (["-"], arithmeticBehav),
     (["*"], arithmeticBehav),
     (["/"], arithmeticBehav),
-    (["↕", "swp"], [([TGeneric "a", TGeneric "b"], [TGeneric "b", TGeneric "a"])])
+    (["↕", "swp"], [([TGeneric "a", TGeneric "b"], [TGeneric "b", TGeneric "a"])]),
+    (["↻", "rot"], [([TGeneric "a", TGeneric "b", TGeneric "c"], [TGeneric "c", TGeneric "a", TGeneric "b"])]),
+    (["⇈", "dup"], [([TGeneric "a"], [TGeneric "a", TGeneric "a"])])
   ]
 
 collapseMap :: String -> Type -> Mapping -> Mapping
@@ -70,11 +72,30 @@ isMatching exp [] _ = Nothing
 isMatching (TGeneric gen:es) (g:gs) m =
   if gen `M.member` m
   then
-    if g == m M.! gen
-    then isMatching es gs m
-    else Nothing
+    case g of
+      TGeneric s ->
+        if s `M.member` m
+        then isMatching es gs $ M.insert gen (m M.! s) m
+        else isMatching es gs $ M.insert gen g m
+      _ -> 
+        if g == m M.! gen
+        then isMatching es gs m
+        else Nothing
   else
     isMatching es gs $ M.insert gen g m
+isMatching (e:es) (g:gs) m =
+  case g of
+    TGeneric s ->
+      if s `M.member` m
+      then
+        if e == m M.! s
+        then isMatching es gs m
+        else Nothing
+      else isMatching es gs $ M.insert s e m
+    _ ->
+      if e == g
+      then isMatching es gs m
+      else Nothing
 
 collapse :: [Type] -> M.Map String Type -> [Type]
 collapse ts gens = map (\case
@@ -88,10 +109,10 @@ tryResolve :: [Mapping] -> Mapping -> [Mapping]
 tryResolve maps (inp, out) = concatMap (\(inp', out') ->
                                           case isMatching inp' out M.empty of
                                             Nothing -> []
-                                            Just gens -> [(inp, collapse out' gens ++ drop (length inp') out)]) maps
+                                            Just gens -> [(collapse inp gens, collapse out' gens ++ drop (length inp') out)]) maps
 
 resolveBody :: M.Map String Behaviour -> [Instruction] -> [Type] -> Maybe Behaviour
-resolveBody known is initial = go is $ zip allInsts allInsts
+resolveBody known is initial = go is [(initial, initial)]
   where
     allInsts = allInstances initial
     go :: [Instruction] -> [Mapping] -> Maybe Behaviour
