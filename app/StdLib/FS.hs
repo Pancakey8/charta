@@ -33,7 +33,7 @@ sizeFS stk@(ValAbstract (Abs a):vs) =
   case fromDynamic a :: Maybe Handle of
     Just fs -> do
       sz <- hFileSize fs
-      return $ ValNum (fromInteger sz):stk
+      return $ ValInt (fromInteger sz):stk
     Nothing -> error "sizeFS: Expected file-stream, got abstract"
 sizeFS _ = error "sizeFS: Expected file-stream"
 
@@ -42,15 +42,15 @@ tellFS stk@(ValAbstract (Abs a):vs) =
   case fromDynamic a :: Maybe Handle of
     Just fs -> do
       sz <- hTell fs
-      return $ ValNum (fromInteger sz):stk
+      return $ ValInt (fromInteger sz):stk
     Nothing -> error "tellFS: Expected file-stream, got abstract"
 tellFS _ = error "tellFS: Expected file-stream"
 
 seekFS :: [Value] -> IO [Value]
-seekFS ((ValNum n):stk@(ValAbstract (Abs a):vs)) =
+seekFS ((ValInt n):stk@(ValAbstract (Abs a):vs)) =
   case fromDynamic a :: Maybe Handle of
     Just fs -> do
-      hSeek fs AbsoluteSeek $ toInteger $ double2Int n
+      hSeek fs AbsoluteSeek $ toInteger n
       return stk
     Nothing -> error "seekFS: Expected file-stream, got abstract"
 seekFS _ = error "seekFS: Expected number and file-stream"

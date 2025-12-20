@@ -74,7 +74,9 @@ step i ctx = -- trace (show $ stack ctx) $
                                                                 val <- callWith fn vals rets
                                                                 advance $ modifyStack ctx $ \stk -> val:drop argc stk
 
-    PushNum n     -> advance $ modifyStack ctx $ \stk -> ValNum n : stk
+    PushInt n     -> advance $ modifyStack ctx $ \stk -> ValInt n : stk
+
+    PushFloat n   -> advance $ modifyStack ctx $ \stk -> ValFloat n : stk
 
     PushStr s     -> advance $ modifyStack ctx $ \stk -> ValStack (map ValChar s) : stk
 

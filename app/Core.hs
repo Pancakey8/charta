@@ -29,7 +29,7 @@ instance Show Function where
   show (Defined {})   = "<user-defined fn>"
   show (Internal _ _) = "<internal fn>"
   show (Mixed _ _)    = "<internal fn>"
-  show (External {})      = "<foreign fn>"
+  show (External {})  = "<foreign fn>"
 
 type FuncTable = M.Map String Function
 
@@ -47,32 +47,48 @@ instance Eq Abstract where
 instance Show Abstract where
   show _ = "<abstract>"
 
-data TValue = TValNum 
+data TValue = TValInt
+            | TValFloat
             | TValBool
             | TValChar
-            | TValStack 
+            | TValStack
             | TValFn
             | TValAbstract
             deriving (Show, Eq)
 
-data Value = ValNum {-# UNPACK #-} !Double
+data Value = ValInt {-# UNPACK #-} !Int
+           | ValFloat {-# UNPACK #-} !Double
            | ValBool !Bool
            | ValChar !Char
            | ValStack [Value]
            | ValFn Function
            | ValAbstract Abstract
-           deriving (Show, Eq)
+           deriving (Show)
+
+instance Eq Value where
+  (ValInt a) == (ValInt b)       = a == b
+  (ValFloat a) == (ValInt b)     = a == fromIntegral b
+  (ValInt a) == (ValFloat b)     = fromIntegral a == b
+  (ValFloat a) == (ValFloat b)   = a == b
+  ValBool a == ValBool b         = a == b
+  ValChar a == ValChar b         = a == b
+  ValStack a == ValStack b       = a == b
+  ValFn a == ValFn b             = a == b
+  ValAbstract a == ValAbstract b = a == b
+  _ == _ = False
 
 valueTagOf :: Value -> TValue
-valueTagOf (ValNum _) = TValNum
-valueTagOf (ValBool _) = TValBool
-valueTagOf (ValChar _) = TValChar
-valueTagOf (ValStack _) = TValStack
-valueTagOf (ValFn _) = TValFn
+valueTagOf (ValFloat _)    = TValFloat
+valueTagOf (ValInt _)      = TValInt
+valueTagOf (ValBool _)     = TValBool
+valueTagOf (ValChar _)     = TValChar
+valueTagOf (ValStack _)    = TValStack
+valueTagOf (ValFn _)       = TValFn
 valueTagOf (ValAbstract _) = TValAbstract
 
 truthy :: Value -> Bool
-truthy (ValNum n)      = n /= 0
+truthy (ValFloat n)    = n /= 0
+truthy (ValInt n)      = n /= 0
 truthy (ValBool b)     = b
 truthy (ValStack vs)   = not $ null vs
 truthy (ValChar ch)    = ch /= '\0'
@@ -84,22 +100,40 @@ maybeString = mapM (\case
                        ValChar c -> Just c
                        _ -> Nothing)
 
-numeric :: Value -> Double
-numeric (ValNum n) = n
-numeric (ValBool b) = if b then 1.0 else 0.0
-numeric (ValChar c) = int2Double $ ord c
+data Numeric = NInt Int
+             | NFloat Double
+
+instance Eq Numeric where
+  (NInt a) == (NInt b)     = a == b
+  (NFloat a) == (NInt b)   = a == fromIntegral b
+  (NInt a) == (NFloat b)   = fromIntegral a == b
+  (NFloat a) == (NFloat b) = a == b
+
+instance Ord Numeric where
+  (NInt a) <= (NInt b)     = a <= b
+  (NFloat a) <= (NInt b)   = a <= fromIntegral b
+  (NInt a) <= (NFloat b)   = fromIntegral a <= b
+  (NFloat a) <= (NFloat b) = a <= b
+
+numeric :: Value -> Numeric
+numeric (ValInt n) = NInt n
+numeric (ValFloat n) = NFloat n
+numeric (ValBool b) = NInt $ fromEnum b
+numeric (ValChar c) = NInt $ ord c
 numeric (ValStack s) =
   case maybeString s of
     Just str -> case parse num "" str of
-                  Right Item { val = ItNum n } -> n
+                  Right Item { val = ItInt n } -> NInt n
+                  Right Item { val = ItFloat n } -> NFloat n
                   _ -> error "Failed conversion stack->number"
     Nothing -> error "Failed conversion stack->number"
 numeric (ValFn _) = error "Failed conversion fn->number"
-numeric (ValAbstract _) = error "Failed conversion abstract->int"
+numeric (ValAbstract _) = error "Failed conversion abstract->number"
 
 stringified :: Value -> String
 stringified (ValChar c)  = [c]
-stringified (ValNum n)   = show n
+stringified (ValInt n)   = show n
+stringified (ValFloat n)   = show n
 stringified (ValBool b)  = if b then "⊤" else "⊥"
 stringified (ValStack s) =
   case maybeString s of
@@ -171,7 +205,7 @@ splat (ValStack stk:vs) = return $ stk ++ vs
 splat vs                = return vs
 
 depth :: [Value] -> IO [Value]
-depth vs = return $ ValNum (int2Double $ length vs):vs
+depth vs = return $ ValInt (length vs):vs
 
 empty :: [Value] -> IO [Value]
 empty vs = return $ ValBool (null vs):vs
@@ -188,33 +222,31 @@ bring [] = return []
 bring vs = return $ last vs : init vs
 
 -- Arithmetic
+arithmetic :: (Int -> Int -> Int) -> (Double-> Double-> Double) -> [Value] -> IO [Value]
+arithmetic fint fdbl (v2:v1:vs) =
+  return $ case (numeric v1, numeric v2) of
+             (NInt a, NInt b)     -> ValInt (a `fint` b):vs
+             (NInt a, NFloat b)   -> ValFloat (fromIntegral a `fdbl` b):vs
+             (NFloat a, NInt b)   -> ValFloat (a `fdbl` fromIntegral b):vs
+             (NFloat a, NFloat b) -> ValFloat (a `fdbl` b):vs
+
 add :: [Value] -> IO [Value]
-add []                           = return []
-add vs@[_]                       = return vs
 add (ValStack s2:ValStack s1:vs) = return $ ValStack (s1 ++ s2):vs
-add (v2:v1:vs)                   = return $ ValNum (numeric v1 + numeric v2):vs
+add vs                           = arithmetic (+) (+) vs
 
 sub :: [Value] -> IO [Value]
-sub []         = return []
-sub vs@[_]     = return vs
-sub (v2:v1:vs) = return $ ValNum (numeric v1 - numeric v2):vs
+sub = arithmetic (-) (-)
 
 mult :: [Value] -> IO [Value]
-mult [] = return []
-mult vs@[_] = return vs
-mult (ValNum n:ValStack s:vs) = return $ ValStack (concat $ replicate (double2Int n) s):vs
-mult (v1@(ValStack _):v2@(ValNum _):vs) = mult $ v2:v1:vs
-mult (v2:v1:vs) = return $ ValNum (numeric v1 * numeric v2):vs
+mult (ValInt n:ValStack s:vs) = return $ ValStack (concat $ replicate n s):vs
+mult (v1@(ValStack _):v2@(ValInt _):vs) = mult $ v2:v1:vs
+mult vs = arithmetic (*) (*) vs
 
 div' :: [Value] -> IO [Value]
-div' []         = return []
-div' vs@[_]     = return vs
-div' (v2:v1:vs) = return $ ValNum (numeric v1 / numeric v2):vs
+div' = arithmetic div (/)
 
 modNum :: [Value] -> IO [Value]
-modNum []         = return []
-modNum vs@[_]     = return vs
-modNum (v2:v1:vs) = return $ ValNum (numeric v1 `mod'` numeric v2):vs
+modNum = arithmetic mod mod'
 
 -- Logic
 pushTrue :: [Value] -> IO [Value]
@@ -274,18 +306,20 @@ asStr (v:vs) = return $ ValStack (map ValChar $ stringified v):vs
 
 asNum :: [Value] -> IO [Value]
 asNum []     = return []
-asNum (v:vs) = return $ ValNum (numeric v):vs
+asNum (v:vs) = case numeric v of
+                 NInt n   -> return $ ValInt n:vs
+                 NFloat n -> return $ ValFloat n:vs
 
 asBool :: [Value] -> IO [Value]
 asBool []     = return []
 asBool (v:vs) = return $ ValBool (truthy v):vs
 
 ordVal :: [Value] -> IO [Value]
-ordVal (v@(ValChar _):vs) = return $ ValNum (numeric v):vs
-ordVal _                  = error "Expected conversion char->int"
+ordVal ((ValChar c):vs) = return $ ValInt (ord c):vs
+ordVal _                = error "Expected conversion char->int"
 
 chrVal :: [Value] -> IO [Value]
-chrVal (ValNum n:vs) = return $ ValChar (toEnum $ double2Int n):vs
+chrVal (ValInt n:vs) = return $ ValChar (toEnum n):vs
 chrVal _             = error "Expected conversion int->char"
 
 packStr :: [Value] -> IO [Value]
@@ -299,8 +333,17 @@ isStr vs@(ValStack v :_) = return $ ValBool (isJust $ maybeString v):vs
 isStr vs                 = return $ ValBool False:vs
 
 isNum :: [Value] -> IO [Value]
-isNum vs@(ValNum _ :_) = return $ ValBool True:vs
-isNum vs               = return $ ValBool False:vs
+isNum vs@(ValFloat _ :_) = return $ ValBool True:vs
+isNum vs@(ValInt _ :_)   = return $ ValBool True:vs
+isNum vs                 = return $ ValBool False:vs
+
+isInt :: [Value] -> IO [Value]
+isInt vs@(ValInt _ :_) = return $ ValBool True:vs
+isInt vs               = return $ ValBool False:vs
+
+isFloat :: [Value] -> IO [Value]
+isFloat vs@(ValFloat _ :_) = return $ ValBool True:vs
+isFloat vs                 = return $ ValBool False:vs
 
 isBool :: [Value] -> IO [Value]
 isBool vs@(ValBool _ :_) = return $ ValBool True:vs
@@ -439,6 +482,8 @@ coreTable = M.fromList $ concatMap (\(names, args, fn) -> [ (name, Internal args
   (["▭s"], Ellipses 0, packStr),
   (["¿str", "is-str"], Limited 1, isStr),
   (["¿num", "is-num"], Limited 1, isNum),
+  (["¿flt", "is-flt"], Limited 1, isFloat),
+  (["¿int", "is-int"], Limited 1, isInt),
   (["¿bool", "is-bool"], Limited 1, isBool),
   (["¿char", "is-char"], Limited 1, isChar),
   (["¿stk", "is-stk"], Limited 1, isStack),

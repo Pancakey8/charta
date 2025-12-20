@@ -7,7 +7,8 @@ import           Text.Parsec        (anyChar, char, digit, eof, getPosition,
                                      (<|>), unexpected)
 import           Text.Parsec.String (Parser)
 
-data ItemValue = ItNum Double
+data ItemValue = ItFloat Double
+               | ItInt Int
                | DirLeft
                | DirRight
                | DirUp
@@ -26,16 +27,29 @@ data ItemValue = ItNum Double
 data Item = Item { len :: Int, val :: ItemValue }
           deriving (Show, Eq)
 
-num :: Parser Item
-num = try $ do
+sign :: Num a => Parser (a -> a)
+sign = (char '-' *> andDigit >> return negate) <|> (char '+' *> andDigit >> return id) <|> return id
+  where andDigit = lookAhead digit
+
+float :: Parser Item
+float = try $ do
   start <- getPosition
-  sgn <- (char '-' *> andDigit >> return negate) <|> (char '+' *> andDigit >> return id) <|> return id
+  sgn <- sign
   int <- many1 digit
-  frac <- option "" $ char '.' >> many1 digit >>= return . ('.':)
+  frac <- char '.' >> many1 digit >>= return . ('.':)
   end <- getPosition
-  return Item { len = sourceColumn end - sourceColumn start, val = ItNum (sgn $ read (int ++ frac)) }
-  where
-    andDigit = lookAhead digit
+  return Item { len = sourceColumn end - sourceColumn start, val = ItFloat (sgn $ read (int ++ frac)) }
+
+int :: Parser Item
+int = try $ do
+  start <- getPosition
+  sgn <- sign
+  int <- many1 digit
+  end <- getPosition
+  return Item { len = sourceColumn end - sourceColumn start, val = ItInt (sgn $ read int) }
+
+num :: Parser Item
+num = try float <|> try int 
 
 specials :: Parser Item
 specials = do

@@ -28,7 +28,8 @@ move (x, y) (dx, dy) = (x + dx, y + dy)
 c .* (x, y) = (c * x, c * y)
 
 data Instruction = Call String
-                 | PushNum Double
+                 | PushFloat Double
+                 | PushInt Int
                  | PushStr String
                  | PushChar Char
                  | PushFn String
@@ -48,7 +49,8 @@ instance Show Instruction where
   show (PushFnVal args is) = "PushFnVal " ++ show args ++ " " ++ show is
   show (PushStr s)         = "PushStr " ++ show s
   show (PushChar c)        = "PushChar " ++ show c
-  show (PushNum n)         = "PushNum " ++ show n
+  show (PushFloat n)       = "PushFloat " ++ show n
+  show (PushInt n)         = "PushInt " ++ show n
   show (Label s)           = "Label " ++ show s
   show (Goto s)            = "Goto " ++ show s
   show (JumpTrue s)        = "JumpTrue " ++ show s
@@ -149,8 +151,11 @@ traverse grid initPos = void $ go initPos (1, 0) S.empty
               DirRight -> go (pos `move` (1, 0)) (1, 0) emitted'
               DirUp -> go (pos `move` (0, -1)) (0, -1) emitted'
               DirDown -> go (pos `move` (0, 1)) (0, 1) emitted'
-              ItNum n -> do
-                emit $ PushNum n
+              ItInt n -> do
+                emit $ PushInt n
+                go pos' dir emitted'
+              ItFloat n -> do
+                emit $ PushFloat n
                 go pos' dir emitted'
               StrLit s -> do
                 emit $ PushStr s
