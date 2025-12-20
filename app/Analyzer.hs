@@ -1,3 +1,5 @@
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE LambdaCase #-}
 module Analyzer where
 
 import Traverser (Instruction (..))
@@ -9,6 +11,7 @@ import Data.List (isPrefixOf)
 import Data.Foldable (find, forM_)
 import Parser (Arguments (..))
 import Control.Monad (foldM)
+import Data.Maybe (mapMaybe)
 
 data Type = TInt
           | TFloat
@@ -61,11 +64,31 @@ allInstances ts = go ts M.empty
       | otherwise = concatMap (\t -> map (t:) $ go ts $ M.insert a t tbl) allTypes
     go (t:ts) tbl = map (t:) $ go ts tbl
 
+isMatching :: [Type] -> [Type] -> M.Map String Type -> Maybe (M.Map String Type)
+isMatching [] _ m = pure m
+isMatching exp [] _ = Nothing
+isMatching (TGeneric gen:es) (g:gs) m =
+  if gen `M.member` m
+  then
+    if g == m M.! gen
+    then isMatching es gs m
+    else Nothing
+  else
+    isMatching es gs $ M.insert gen g m
+
+collapse :: [Type] -> M.Map String Type -> [Type]
+collapse ts gens = map (\case
+                           TGeneric s ->
+                             if s `M.member` gens
+                             then gens M.! s
+                             else TGeneric s
+                           t -> t) ts
+
 tryResolve :: [Mapping] -> Mapping -> [Mapping]
-tryResolve maps (inp, out) = -- trace ("Trying " ++ show inp ++ "->" ++ show out) $
-  case find (\(inp', _) -> inp' `isPrefixOf` out) maps of
-    Nothing -> []
-    Just (inp', out') -> [(inp, out' ++ drop (length inp') out)]
+tryResolve maps (inp, out) = concatMap (\(inp', out') ->
+                                          case isMatching inp' out M.empty of
+                                            Nothing -> []
+                                            Just gens -> [(inp, collapse out' gens ++ drop (length inp') out)]) maps
 
 resolveBody :: M.Map String Behaviour -> [Instruction] -> [Type] -> Maybe Behaviour
 resolveBody known is initial = go is $ zip allInsts allInsts
