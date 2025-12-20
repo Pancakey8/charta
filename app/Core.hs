@@ -20,7 +20,7 @@ import           Traverser                (Instruction)
 data Function = Defined Arguments (V.Vector Instruction)
               | Internal Arguments ([Value] -> IO [Value])
               | Mixed Arguments (Context -> Runner -> [Value] -> IO [Value])
-              | External (FunPtr ()) Int
+              | External (FunPtr ()) Int String
 
 instance Eq Function where
   _ == _ = False
@@ -29,7 +29,7 @@ instance Show Function where
   show (Defined {})   = "<user-defined fn>"
   show (Internal _ _) = "<internal fn>"
   show (Mixed _ _)    = "<internal fn>"
-  show (External _ _)      = "<foreign fn>"
+  show (External {})      = "<foreign fn>"
 
 type FuncTable = M.Map String Function
 
@@ -47,6 +47,14 @@ instance Eq Abstract where
 instance Show Abstract where
   show _ = "<abstract>"
 
+data TValue = TValNum 
+            | TValBool
+            | TValChar
+            | TValStack 
+            | TValFn
+            | TValAbstract
+            deriving (Show, Eq)
+
 data Value = ValNum {-# UNPACK #-} !Double
            | ValBool !Bool
            | ValChar !Char
@@ -54,6 +62,14 @@ data Value = ValNum {-# UNPACK #-} !Double
            | ValFn Function
            | ValAbstract Abstract
            deriving (Show, Eq)
+
+valueTagOf :: Value -> TValue
+valueTagOf (ValNum _) = TValNum
+valueTagOf (ValBool _) = TValBool
+valueTagOf (ValChar _) = TValChar
+valueTagOf (ValStack _) = TValStack
+valueTagOf (ValFn _) = TValFn
+valueTagOf (ValAbstract _) = TValAbstract
 
 truthy :: Value -> Bool
 truthy (ValNum n)      = n /= 0

@@ -11,9 +11,9 @@ import           Data.List                (find)
 import           Data.Maybe               (fromJust)
 import qualified Data.Vector              as V
 import           Debug.Trace              (trace)
+import           FFI                      (callWith)
 import           Parser                   (Arguments (..))
 import           Traverser                (Instruction (..))
-import FFI (callWith)
 
 run :: Context -> IO Context
 run ctx = -- trace (show ctx) $
@@ -68,11 +68,11 @@ step i ctx = -- trace (show $ stack ctx) $
                                                  in withArgs fname args stk $ \_ -> fn ctx run stk >>=
                                                                                     \c -> advance $ modifyStack ctx (const c)
 
-                                External fn argc -> let stk = stack $ head $ frames ctx
-                                                    in withArgs fname (Limited argc) stk
-                                                       $ \vals -> do
-                                                           callWith fn vals
-                                                           advance $ modifyStack ctx (drop argc)
+                                External fn argc rets -> let stk = stack $ head $ frames ctx
+                                                         in withArgs fname (Limited argc) stk
+                                                            $ \vals -> do
+                                                                val <- callWith fn vals rets
+                                                                advance $ modifyStack ctx $ \stk -> val:drop argc stk
 
     PushNum n     -> advance $ modifyStack ctx $ \stk -> ValNum n : stk
 

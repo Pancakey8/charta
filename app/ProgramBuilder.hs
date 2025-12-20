@@ -18,7 +18,7 @@ import System.Environment (getExecutablePath)
 import qualified Data.Vector as V
 
 data SourceElem = Native (Visibility, Function)
-                | Foreign (String, String, Int)
+                | Foreign (String, String, Int, String)
                 deriving (Show)
 
 data SourceTree = Source (M.Map String SourceElem) [SourceTree]
@@ -101,7 +101,7 @@ buildFromTLs tls root = go tls M.empty []
           let func = Defined args $ V.fromList instrs
           go rest (M.insert name (Native (vis, func)) funcs) imports
 
-    go (FFIDecl d@(lib, name, args):rest) funcs imports = go rest (M.insert name (Foreign d) funcs) imports
+    go (FFIDecl d@(lib, name, args, rets):rest) funcs imports = go rest (M.insert name (Foreign d) funcs) imports
 
 flattenTree :: SourceTree -> M.Map String SourceElem
 flattenTree tree = go tree ""

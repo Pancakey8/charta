@@ -14,14 +14,14 @@ import           System.Environment (getArgs)
 
 loadIfForeign :: FFITable -> SourceElem -> IO (FFITable, Function)
 loadIfForeign tbl (Native (_, f))                  = return (tbl, f)
-loadIfForeign tbl (Foreign (libName, name, argc))
+loadIfForeign tbl (Foreign (libName, name, argc, rets))
   | libName `M.member` tbl = do
       ptr <- loadSymbol (tbl M.! libName) name
-      return (tbl, External ptr argc)
+      return (tbl, External ptr argc rets)
   | otherwise = do
       lib <- loadShared libName
       ptr <- loadSymbol lib name
-      return (M.insert libName lib tbl, External ptr argc)
+      return (M.insert libName lib tbl, External ptr argc rets)
 
 loadOnTable :: M.Map String SourceElem -> IO (FFITable, M.Map String Function)
 loadOnTable tbl = foldM step (M.empty, M.empty) $ M.toList tbl

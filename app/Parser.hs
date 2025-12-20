@@ -155,7 +155,7 @@ lastMaybe []     = Nothing
 lastMaybe [x]    = pure x
 lastMaybe (x:xs) = lastMaybe xs
 
-type FFIFunc = (String, String, Int)
+type FFIFunc = (String, String, Int, String)
 
 ffiFunc :: Parser FFIFunc
 ffiFunc = do
@@ -175,7 +175,7 @@ ffiFunc = do
   spaces
   Item { val = Sym ret } <- sym
   spaces
-  return (lib, name, length args)
+  return (lib, name, length args, ret)
 
 func :: Parser Function
 func = do

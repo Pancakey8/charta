@@ -1,35 +1,90 @@
 {-# LANGUAGE CPP #-}
 module FFI where
 
-#ifdef mingw32_HOST_OS
-#else
-import FFI.Unix
-#endif
 
-import           Core           (Value (..))
+
+import           FFI.Unix
+
+
+import           Core           (Value (..), valueTagOf)
+import           Data.Coerce    (coerce)
+import qualified Data.Map       as M
+import           Foreign        (FunPtr, nullPtr, withArray)
 import           Foreign.C      (CChar (CChar), CDouble (CDouble),
-                                 castCharToCChar)
-import           Foreign.LibFFI (Arg, argCChar, argCDouble, argCInt, callFFI, retVoid)
-import Foreign (FunPtr)
-import qualified Data.Map as M
+                                 castCCharToChar, castCharToCChar)
+import           Foreign.LibFFI (Arg, RetType, argCChar, argCDouble, argCInt,
+                                 argPtr, callFFI, retCChar, retCInt, retVoid)
 
-val2Arg :: Value -> Arg
-val2Arg v =
+val2Arg :: Value -> (Arg -> IO a) -> IO a
+val2Arg v k =
   case v of
     ValNum n ->
       if snd (properFraction n) == 0
-      then argCInt $ floor n
-      else argCDouble $ CDouble n
-    ValChar c -> argCChar $ castCharToCChar c
-    ValBool b -> argCChar $ fromIntegral $ fromEnum b
-    ValStack _ -> error "TODO: Stack -> C FFI"
-    ValFn _ -> error "TODO: Fn -> C FFI"
-    ValAbstract _ -> error "TODO: Abstract -> C FFI"
+      then k $ argCInt $ floor n
+      else k $ argCDouble $ CDouble n
 
-callWith :: FunPtr () -> [Value] -> IO ()
-callWith func args = do
-  -- putStrLn $ "Calling " ++ show func ++ " with " ++ show args
-  callFFI func retVoid $ map val2Arg args
+    ValChar c ->
+      k $ argCChar $ castCharToCChar c
+
+    ValBool b ->
+      k $ argCChar $ fromIntegral $ fromEnum b
+
+    ValStack [] -> k $ argPtr nullPtr
+
+    ValStack stk@(v:_) ->
+      case v of
+        ValChar _ ->
+          withArray
+          [ castCharToCChar c | ValChar c <- stk ]
+          (k . argPtr)
+
+        ValBool _ ->
+          withArray
+          [ fromIntegral (fromEnum b) | ValBool b <- stk ]
+          (k . argPtr)
+
+        ValNum _ ->
+          let ns = [ n | ValNum n <- stk ]
+          in if all (\t -> snd (properFraction t) == 0) ns
+             then withArray
+                  [ fromIntegral (floor n) | n <- ns ]
+                  (k . argPtr)
+             else withArray
+                  [ CDouble n | n <- ns ]
+                  (k . argPtr)
+
+        _ ->
+          error "Heterogeneous stack -> C FFI not supported"
+
+    ValFn _ ->
+      error "Fn -> C FFI not supported"
+
+    ValAbstract _ ->
+      error "Abstract -> C FFI not supported"
+
+vals2Args :: [Value] -> ([Arg] -> IO a) -> IO a
+vals2Args vals k =
+  foldr step k vals []
+  where
+    step v cont acc =
+      val2Arg v $ \arg ->
+        cont (arg : acc)
+
+callWith :: FunPtr () -> [Value] -> String -> IO Value
+callWith func args rets =
+  case rets of
+    "int" -> do
+      n <- callFFIReturn retCInt
+      return $ ValNum $ fromIntegral n
+    "char" -> do
+      n <- callFFIReturn retCChar
+      return $ ValChar $ castCCharToChar n
+    "bool" -> do
+      n <- callFFIReturn retCChar
+      return $ ValBool $ toEnum $ fromIntegral n
+  where
+    callFFIReturn ret = vals2Args args $ \args' -> do
+      callFFI func ret args'
 
 type FFITable = M.Map String SharedLib
 
