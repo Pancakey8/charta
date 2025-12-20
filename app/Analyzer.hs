@@ -109,7 +109,8 @@ tryResolve :: [Mapping] -> Mapping -> [Mapping]
 tryResolve maps (inp, out) = concatMap (\(inp', out') ->
                                           case isMatching inp' out M.empty of
                                             Nothing -> []
-                                            Just gens -> [(collapse inp gens, collapse out' gens ++ drop (length inp') out)]) maps
+                                            Just gens -> [(collapse inp gens,
+                                                           collapse (out' ++ drop (length inp') out) gens)]) maps
 
 resolveBody :: M.Map String Behaviour -> [Instruction] -> [Type] -> Maybe Behaviour
 resolveBody known is initial = go is [(initial, initial)]
