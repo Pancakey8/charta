@@ -41,6 +41,7 @@ executable charta
                       StdLib.IO,
                       StdLib.FS,
                       FFI,
+                      Analyzer
     if os(windows)
       -- TODO
     else

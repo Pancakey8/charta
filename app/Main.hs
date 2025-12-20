@@ -11,6 +11,7 @@ import           Interpreter        (runProgram)
 import           IRPasses
 import           ProgramBuilder
 import           System.Environment (getArgs)
+import Analyzer (analyzeProgram)
 
 loadIfForeign :: FFITable -> SourceElem -> IO (FFITable, Function)
 loadIfForeign tbl (Native (_, f))                  = return (tbl, f)
@@ -45,6 +46,7 @@ main = do
       (ffiTbl, withForeigns) <- loadOnTable table
       let withPasses = M.map doPasses withForeigns
       when ("-ir" `elem` opts) $ mapM_ display (M.toList withPasses)
+      analyzeProgram withPasses
       void $ runProgram withPasses
       closeTable ffiTbl
   where

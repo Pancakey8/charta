@@ -456,8 +456,8 @@ coreTable = M.fromList $ concatMap (\(names, args, fn) -> [ (name, Internal args
   (["≡", "dpt"], Ellipses 0, depth), -- \equiv
   (["·", "null"], Ellipses 0, empty), -- \cdot
   (["⇆", "rev"], Ellipses 0, rev), -- \leftrightarrows
-  (["⇓", "shv"], Ellipses 0, shove), -- \Downarrow
-  (["⇑", "brg"], Ellipses 0, bring), -- \Uparrow
+  (["⇓", "shv"], Ellipses 1, shove), -- \Downarrow
+  (["⇑", "brg"], Ellipses 1, bring), -- \Uparrow
   (["+"], Limited 2, add),
   (["-"], Limited 2, sub),
   (["*"], Limited 2, mult),
@@ -493,5 +493,6 @@ coreTable = M.fromList $ concatMap (\(names, args, fn) -> [ (name, Internal args
   (["≻", "join"], Limited 1, joinAsync)
   ] ++ concatMap (\(names, args, fn) -> [ (name, Mixed args fn) | name <- names ]) [
   (["∘", "ap"], Ellipses 1, apply), -- \circ
-  (["⊡", "sap"], Ellipses 1, applyLocal) -- \dotsquare
+  (["⊡", "sap"], Limited 2, applyLocal) -- \dotsquare
   ]
+
