@@ -1,194 +1,108 @@
-{-# OPTIONS_GHC -Wno-incomplete-patterns #-}
 module Analyzer where
-import           Control.Monad (foldM, foldM_)
-import           Core          (FuncTable, Function (..), TValue, atLeast)
-import           Data.Functor  (void)
-import qualified Data.Map      as M
-import qualified Data.Vector   as V
-import qualified Parser        as P
-import           Traverser     (Instruction (..))
+
+import Traverser (Instruction (..))
+import qualified Data.Map as M
+import Core (FuncTable, Function (..))
+import qualified Data.Vector as V
 import Debug.Trace (trace)
+import Data.List (isPrefixOf)
+import Data.Foldable (find, forM_)
+import Parser (Arguments (..))
+import Control.Monad (foldM)
 
 data Type = TInt
           | TFloat
-          | TBool
-          | TChar
-          | TStack
-          | TFn
-          | TAbstract
-          | TAny
-          | TNumeric
+          | TGeneric String
           deriving (Show, Eq)
 
-data Arguments = Limited [Type]
-               | Ellipses [Type]
-               deriving (Show, Eq)
+allTypes :: [Type]
+allTypes = [TInt, TFloat]
 
-data Returns = Exact [Type]
-             | Many Type
-             | Stop
-             deriving (Show, Eq)
+type Mapping = ([Type], [Type])
+newtype Behaviour = Bhv [Mapping]
+                  deriving (Show, Eq)
 
-data FunctionAnalysis = Analysis Arguments Returns
-                      deriving (Show)
-type AnalysisTable = M.Map String FunctionAnalysis
-
-coreAnalysis :: AnalysisTable
-coreAnalysis = M.fromList $ concatMap (\(names, args, returns) -> [ (name, Analysis args returns) | name <- names ]) [
-  (["⇈", "dup"], Limited [TAny], Exact [TAny, TAny]),
-  (["∅", "drp"], Limited [TAny], Exact []),
-  (["⊢", "fst"], Limited [TStack], Exact [TAny, TStack]),
-  (["⊩", "snd"], Limited [TStack], Exact [TAny, TStack]),
-  (["⊣", "lst"], Limited [TStack], Exact [TAny, TStack]),
-  (["⊢!", "pop"], Limited [TStack], Exact [TAny, TStack]),
-  (["⊩!", "hop"], Limited [TStack], Exact [TAny, TStack]),
-  (["⊣!", "bot"], Limited [TStack], Exact [TAny, TStack]),
-  (["↻", "rot"], Limited [TAny, TAny, TAny], Exact [TAny, TAny, TAny]),
-  (["↷", "rot-"], Limited [TAny, TAny, TAny], Exact [TAny, TAny, TAny]),
-  (["↕", "swp"], Limited [TAny, TAny], Exact [TAny, TAny]),
-  (["⊼", "ovr"], Limited [TAny, TAny], Exact [TAny, TAny, TAny]),
-  (["▭", "pack"], Ellipses [], Exact [TStack]),
-  (["⋮", "spt"], Limited [TStack], Many TAny),
-  (["≡", "dpt"], Ellipses [], Exact [TInt]),
-  (["·", "null"], Ellipses [], Exact [TBool]),
-  (["⇆", "rev"], Ellipses [], Many TAny),
-  (["⇓", "shv"], Ellipses [TAny], Many TAny),
-  (["⇑", "brg"], Ellipses [TAny], Many TAny),
-  (["+"], Limited [TNumeric, TNumeric], Exact [TNumeric]),
-  (["-"], Limited [TNumeric, TNumeric], Exact [TNumeric]),
-  (["*"], Limited [TNumeric, TNumeric], Exact [TNumeric]),
-  (["/"], Limited [TNumeric, TNumeric], Exact [TNumeric]),
-  (["%"], Limited [TNumeric, TNumeric], Exact [TNumeric]),
-  (["⊤", "T"], Limited [], Exact [TBool]),
-  (["⊥", "F"], Limited [], Exact [TBool]),
-  (["="], Limited [TAny, TAny], Exact [TBool]),
-  (["≠", "!="], Limited [TAny, TAny], Exact [TBool]),
-  (["<"], Limited [TNumeric, TNumeric], Exact [TBool]),
-  ([">"], Limited [TNumeric, TNumeric], Exact [TBool]),
-  (["≤", "<="], Limited [TNumeric, TNumeric], Exact [TBool]),
-  (["≥", ">="], Limited [TNumeric, TNumeric], Exact [TBool]),
-  (["∧", "&&"], Limited [TBool, TBool], Exact [TBool]),
-  (["∨", "||"], Limited [TBool, TBool], Exact [TBool]),
-  (["¬", "!"], Limited [TBool], Exact [TBool]),
-  (["str"], Limited [TAny], Exact [TStack]),
-  (["num"], Limited [TAny], Exact [TNumeric]),
-  (["bool"], Limited [TAny], Exact [TBool]),
-  (["ord"], Limited [TChar], Exact [TInt]),
-  (["chr"], Limited [TInt], Exact [TChar]),
-  (["▭s"], Ellipses [], Exact [TStack]),
-  (["¿str", "is-str"], Limited [TAny], Exact [TBool]),
-  (["¿num", "is-num"], Limited [TAny], Exact [TBool]),
-  (["¿flt", "is-flt"], Limited [TAny], Exact [TBool]),
-  (["¿int", "is-int"], Limited [TAny], Exact [TBool]),
-  (["¿bool", "is-bool"], Limited [TAny], Exact [TBool]),
-  (["¿char", "is-char"], Limited [TAny], Exact [TBool]),
-  (["¿stk", "is-stk"], Limited [TAny], Exact [TBool]),
-  (["¿fn", "is-fn"], Limited [TAny], Exact [TBool]),
-  (["⚠", "dbg"], Limited [], Exact []),
-  (["⊗", "pnc"], Ellipses [TAny], Stop),
-  (["≻", "join"], Limited [TAbstract], Many TAny),
-  (["∘", "ap"], Ellipses [TFn], Many TAny),
-  (["⊡", "sap"], Ellipses [TFn, TStack], Exact [TStack])
+arithmeticBehav :: [Mapping]
+arithmeticBehav =
+  [
+    ([TInt, TInt], [TInt]),
+    ([TFloat, TInt], [TFloat]),
+    ([TInt, TFloat], [TFloat]),
+    ([TFloat, TFloat], [TFloat])
   ]
 
-warn :: String -> IO ()
-warn msg = putStrLn $ "WARNING: " ++ msg
+internals :: M.Map String Behaviour
+internals = M.fromList $ concatMap (\(names, maps) -> [ (name, Bhv maps) | name <- names ]) $
+  [
+    (["+"], arithmeticBehav),
+    (["-"], arithmeticBehav),
+    (["*"], arithmeticBehav),
+    (["/"], arithmeticBehav),
+    (["↕", "swp"], [([TGeneric "a", TGeneric "b"], [TGeneric "b", TGeneric "a"])])
+  ]
 
-fault :: String -> IO a
-fault msg = error $ "FAULT: " ++ msg
-
-data Status = Unresolved String
-            | FailArgs [Type] [Type]
-
-emulate :: AnalysisTable -> [Instruction] -> [Type] -> Either Status Returns
-emulate tbl [] stk = return $ Exact stk
-emulate tbl (i:is) stk = trace ("At '" ++ show i ++ "', stack = " ++ show stk) $
-  case i of
-    Call f -> if f `M.notMember` tbl
-              then Left $ Unresolved f
-              else
-                let (Analysis args rets) = tbl M.! f
-                in case rets of
-                     Many t -> return $ Many t
-                     Exact n ->
-                       takeArgs args stk $
-                       \stk' -> emulate tbl is (n ++ stk')
-
-    PushFloat _ -> emulate tbl is (TFloat:stk)
-    PushInt _ -> emulate tbl is (TInt:stk)
-    PushStr _ -> emulate tbl is (TStack:stk)
-    PushChar _ -> emulate tbl is (TChar:stk)
-    PushFn _ -> emulate tbl is (TFn:stk)
-    PushFnVal _ _ -> emulate tbl is (TFn:stk)
-
-    Label l -> error "TODO"
-    Goto l -> error "TODO"
-
-    JumpTrue l -> error "TODO"
-    ForkTo l -> error "TODO"
-
-    Exit -> return $ Exact stk
-
-    PosMarker _ _ -> error "Unreachable PosMarker in Analysis"
-    GotoPos _ -> error "Unreachable GotoPos in Analysis"
-
-takeArgs :: Arguments -> [Type] -> ([Type] -> Either Status Returns) -> Either Status Returns
-takeArgs args stk f = do
-  case args of
-    Limited n ->
-      if isFitting n stk
-      then
-        f $ drop (length n) stk
-      else
-        Left $ FailArgs n stk
-    Ellipses n ->
-      if isFitting n stk
-      then
-        f []
-      else
-        Left $ FailArgs n stk
+collapseMap :: String -> Type -> Mapping -> Mapping
+collapseMap gen t (ins, outs) = (map fix ins, map fix outs)
   where
-    isFitting expecteds params =
-      atLeast (length expecteds) params
-      && all (uncurry matches) (zip expecteds params)
-    matches expected got =
-      case (expected, got) of
-        (TInt, TInt)           -> True
-        (TFloat, TFloat)       -> True
-        (TBool, TBool)         -> True
-        (TChar, TChar)         -> True
-        (TStack, TStack)       -> True
-        (TFn, TFn)             -> True
-        (TAbstract, TAbstract) -> True
-        (TNumeric, TNumeric)   -> True
-        (TNumeric, TInt)       -> True
-        (TNumeric, TFloat)     -> True
-        (TAny, _)              -> True
+    fix (TGeneric g) = if g == gen
+                       then t
+                       else TGeneric g
+    fix a = a
 
-analyzeFn :: AnalysisTable -> String -> Function -> IO AnalysisTable
-analyzeFn tbl fname (Defined args instrs) = do
-  case emulate tbl (V.toList instrs) [] of
-    Left (Unresolved other) -> warn ("Unresolved '" ++ fname ++ "' due to '" ++ other ++ "'") >> return tbl
-    Left (FailArgs expected got) -> fault ("Expected: " ++ show expected ++ "\nGot: " ++ show got)
-    Right ret -> return $ M.insert fname (Analysis args' ret) tbl
+collapseBhv :: String -> Type -> Behaviour -> Behaviour
+collapseBhv gen t (Bhv ms) = Bhv $ map (collapseMap gen t) ms
+
+allInstances :: [Type] -> [[Type]]
+allInstances ts = go ts M.empty
   where
-    args' = case args of
-              P.Limited n  -> Limited $ replicate n TAny
-              P.Ellipses n -> Ellipses $ replicate n TAny
-analyzeFn tbl fname (External _ n rets) =
-  let retType = case rets of
-                  "int"    -> TInt
-                  "double" -> TFloat
-                  "char"   -> TChar
-                  "bool"   -> TBool
-                  _        -> error $ "Unsupported return type " ++ rets
-  in return $ M.insert fname (Analysis (Limited (replicate n TAny)) (Exact [retType])) tbl
-analyzeFn tbl fname _  = if fname `M.member` tbl
-                         then return tbl
-                         else warn ("'" ++ fname ++ "' has no internal type definition")
-                              >> return tbl
+    go [] _ = [[]]
+    go (TGeneric a:ts) tbl
+      | a `M.member` tbl = map (tbl M.! a:) $ go ts tbl
+      | otherwise = concatMap (\t -> map (t:) $ go ts $ M.insert a t tbl) allTypes
+    go (t:ts) tbl = map (t:) $ go ts tbl
+
+tryResolve :: [Mapping] -> Mapping -> [Mapping]
+tryResolve maps (inp, out) = -- trace ("Trying " ++ show inp ++ "->" ++ show out) $
+  case find (\(inp', _) -> inp' `isPrefixOf` out) maps of
+    Nothing -> []
+    Just (inp', out') -> [(inp, out' ++ drop (length inp') out)]
+
+resolveBody :: M.Map String Behaviour -> [Instruction] -> [Type] -> Maybe Behaviour
+resolveBody known is initial = go is $ zip allInsts allInsts
+  where
+    allInsts = allInstances initial
+    go :: [Instruction] -> [Mapping] -> Maybe Behaviour
+    go (i:is) states = trace ("On: " ++ show i) $ 
+      case i of
+        PushInt _ -> go is $ map (\(inp, out) -> (inp, TInt:out)) states
+        PushFloat _ -> go is $ map (\(inp, out) -> (inp, TFloat:out)) states
+        Call f ->
+          if f `M.member` known
+          then
+            let (Bhv maps) = known M.! f
+            in {-trace ("Maps: " ++ show maps) $-} 
+              let states' = concatMap (tryResolve maps) states
+              in go is states'
+          else Nothing
+        Exit -> pure $ Bhv states
+    go _ _ = error "Function ended without 'Exit'"
+
+generics :: Int -> [Type]
+generics n = [ TGeneric $ "G" ++ show i | i <- [1..n] ]
 
 analyzeProgram :: FuncTable -> IO ()
-analyzeProgram table = do
-  tbl <- foldM (\tbl (name, fn) -> analyzeFn tbl name fn) coreAnalysis $ M.toList table
-  print tbl
+analyzeProgram tbl = do
+  resolved <- foldM (\known (name, fn) ->
+                          case fn of
+                            Defined (Limited n) body ->
+                              case resolveBody known (V.toList body) (generics n) of
+                                Just bhv -> pure $ M.insert name bhv known
+                                Nothing -> do
+                                  putStrLn ("Unresolved: '" ++ name ++ "'")
+                                  return known
+                            Defined (Ellipses n) _ -> error "TODO"
+                            _ -> pure known) internals $ M.toList tbl
+  forM_ (M.toList resolved) $ \(k, Bhv maps) -> do
+    putStrLn $ "fn " ++ k ++ " instances:"
+    forM_ maps $ \(inp, out) -> do
+      putStrLn $ "  " ++ show inp ++ " -> " ++ show out
