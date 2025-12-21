@@ -10,12 +10,27 @@ import           Traverser     (Instruction (..))
 import qualified Data.Map as M
 import qualified Data.Vector as V
 import Parser (Arguments(..))
+import Debug.Trace (trace)
 
 data MiniValue = MInt
                | MFloat
                | MChar
                | MBool (Maybe Bool)
-               deriving (Show)
+               | MStack (Maybe [MiniValue])
+               | MFn (Maybe Behaviour)
+               | MAbstract
+               | MGeneric String
+
+instance Show MiniValue where
+  show MInt = "MInt"
+  show MFloat = "MFloat"
+  show MChar = "MChar"
+  show (MStack n) = "MStack " ++ show n
+  show MAbstract = "MAbstract"
+  show (MBool n) = "MBool " ++ show n
+  show (MFn Nothing) = "MFn <?>"
+  show (MFn _) = "MFn <fn>"
+  show (MGeneric s) = "MGeneric " ++ show s
 
 instance Eq MiniValue where
   MInt == MInt = True
@@ -49,7 +64,7 @@ liftBhv f = Bhv $ \maps -> collectResults $ [ fmap (\outs' -> [(ins, outs')]) (f
 
 returnBhv :: Behaviour
 returnBhv = liftBhv return
-  
+
 andThen :: Behaviour -> Behaviour -> Behaviour
 (Bhv f) `andThen` (Bhv g) = Bhv (f >=> g)
 
@@ -69,35 +84,70 @@ branch success fail = Bhv $ \maps ->
         _ ->
           Left "branch: Expected bool"
 
-isChar :: Behaviour
-isChar = liftBhv $
-  \case
-    (MChar:xs) -> pure $ MBool (Just True):MChar:xs
-    s@(_:xs) -> pure $ MBool (Just False):s
-    _ -> Left "isChar: Expected any"
+allSubs :: [MiniValue]
+allSubs = [MFloat, MChar, MBool Nothing, MStack Nothing, MAbstract, MFn Nothing]
 
-isInt :: Behaviour
-isInt = liftBhv $
-  \case
-    (MInt:xs) -> pure $ MBool (Just True):MInt:xs
-    s@(_:xs) -> pure $ MBool (Just False):s
-    _ -> Left "isChar: Expected any"
+delete :: Eq a => a -> [a] -> [a]
+delete a xs = case break (==a) xs of
+                (k, _:l) -> k ++ l
+                _ -> xs
 
+isType :: MiniValue -> Behaviour
+isType match = Bhv $ \maps -> collectResults $ map
+  (\(i, o) ->
+     case o of 
+       (a:xs) ->
+         if a == match
+         then pure [(i, MBool (Just True):a:xs)]
+         else
+           case a of
+             MGeneric g -> pure $ (subst g match i, subst g match $ MBool (Just True):match:xs)
+                           : [(subst g t i, subst g t $ MBool (Just False):t:xs) | t <- delete match allSubs]
+             _ -> pure [(i, MBool (Just False):MInt:xs)]
+       _ -> Left "isType: Expected any")
+  maps
+
+promote :: MiniValue -> MiniValue -> Either String MiniValue
+promote MInt   MInt   = Right MInt
+promote MInt   MFloat = Right MFloat
+promote MFloat MInt   = Right MFloat
+promote MFloat MFloat = Right MFloat
+promote _      _      = Left "arithm: Expected numeric arguments"
 
 arithmBehav :: Behaviour
-arithmBehav = liftBhv $
-  \case
-    (MInt:MInt:xs) -> pure $ MInt:xs
-    (MFloat:MInt:xs) -> pure $ MFloat:xs
-    (MInt:MFloat:xs) -> pure $ MFloat:xs
-    (MFloat:MFloat:xs) -> pure $ MFloat:xs
-    _ -> Left "arithmetic: Expected numbers"
+arithmBehav = Bhv $ \maps ->
+  collectResults $ map
+  (\(i, o) ->
+     case o of
+       (a:b:xs) ->
+         let tas = maybe [a] (const [MInt, MFloat]) $ genericName a
+             tbs = maybe [b] (const [MInt, MFloat]) $ genericName b
+         in sequence [ do
+                         r <- promote ta tb
+                         pure (sub i, sub $ r:xs)
+                     | ta <- tas, tb <- tbs, let sub = maybe id (`subst` ta) (genericName a)
+                                                       . maybe id (`subst` tb) (genericName b)
+                     ]
+       _ -> Left "arithm: Expected numeric arguments")
+  maps
+
+genericName :: MiniValue -> Maybe String
+genericName (MGeneric n) = pure n
+genericName _ = Nothing
+
+subst :: String -> MiniValue -> [MiniValue] -> [MiniValue]
+subst gen conc vals = map (\case
+                              MGeneric g ->
+                                if g == gen
+                                then conc
+                                else MGeneric g
+                              t -> t) vals
 
 internalFns :: M.Map String Behaviour
 internalFns = M.fromList $ concatMap (\(names, behav) -> [ (name, behav) | name <- names ]) $
   [
-    (["¿char"], isChar),
-    (["¿int"], isInt),
+    (["¿char"], isType MChar),
+    (["¿int"], isType MInt),
     (["+"], arithmBehav),
     (["-"], arithmBehav),
     (["*"], arithmBehav),
@@ -117,6 +167,12 @@ behaviourOf tbl prog = go prog M.empty
         PushInt _ -> pushElem MInt `andThen` go is visited
         PushChar _ -> pushElem MChar `andThen` go is visited
         PushFloat _ -> pushElem MFloat `andThen` go is visited
+        PushStr s -> pushElem (MStack $ pure $ replicate (length s) MChar)
+                     `andThen` go is visited
+        PushFn name -> pushElem (MFn $ pure $ tbl M.! name)
+                       `andThen` go is visited
+        PushFnVal _ _ -> error "TODO"
+        ForkTo _ -> error "TODO"
         Label l ->
           Bhv $
           \maps ->
@@ -138,18 +194,17 @@ behaviourOf tbl prog = go prog M.empty
               else Left $ "Loop has net effect: " ++ l
             else runBhv (go is $ M.insert l maps visited) maps
         Exit -> returnBhv
+        PosMarker _ _ -> error "Unreachable in Analysis"
+        GotoPos _ -> error "Unreachable in Analysis"
     goto l =
       case break (==Label l) prog of
         (_, _:is) -> is
         (_, _) -> error $ "Label " ++ l ++ " not found"
 
-allArgs :: Int -> [[MiniValue]]
-allArgs 0 = [[]]
-allArgs n = concatMap opts $ allArgs (n-1)
-  where
-    opts x = [MInt:x, MChar:x, MBool Nothing:x, MFloat:x]
+allArgs :: Int -> [MiniValue]
+allArgs n = [ MGeneric ("G" ++ show i) | i <- [1..n] ]
 
 analyzeProgram :: FuncTable -> IO ()
 analyzeProgram tbl = do
   let (Defined (Limited n) body) = tbl M.! "foo"
-  print $ runBhv (behaviourOf internalFns $ V.toList body) $ map idMap $ allArgs n
+  print $ runBhv (behaviourOf internalFns $ V.toList body) [idMap (allArgs n)]

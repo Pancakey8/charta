@@ -1,6 +1,3 @@
-fn foo (x) {
-→ ¿int ? ∅
-       ↓
-       2
-       +
+fn foo (x y) {
+→ ∅
 }
