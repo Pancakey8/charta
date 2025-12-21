@@ -3,17 +3,27 @@
 module Analyzer where
 
 import           Control.Monad ((>=>))
-import           Core          (FuncTable, arithmetic)
+import           Core          (FuncTable, arithmetic, Function (Defined))
 import           Data.Either   (isLeft, lefts, rights)
 import           Data.Maybe    (mapMaybe)
 import           Traverser     (Instruction (..))
 import qualified Data.Map as M
+import qualified Data.Vector as V
+import Parser (Arguments(..))
 
 data MiniValue = MInt
                | MFloat
                | MChar
                | MBool (Maybe Bool)
                deriving (Show)
+
+instance Eq MiniValue where
+  MInt == MInt = True
+  MFloat == MFloat = True
+  MChar == MChar = True
+  MBool Nothing == MBool Nothing = True
+  MBool (Just a) == MBool (Just b) = a == b
+  _ == _ = False
 
 type Mapping = ([MiniValue], [MiniValue])
 
@@ -37,6 +47,9 @@ collectResults xs =
 liftBhv :: ([MiniValue] -> Either String [MiniValue]) -> Behaviour
 liftBhv f = Bhv $ \maps -> collectResults $ [ fmap (\outs' -> [(ins, outs')]) (f outs) | (ins, outs) <- maps ]
 
+returnBhv :: Behaviour
+returnBhv = liftBhv return
+  
 andThen :: Behaviour -> Behaviour -> Behaviour
 (Bhv f) `andThen` (Bhv g) = Bhv (f >=> g)
 
@@ -63,6 +76,14 @@ isChar = liftBhv $
     s@(_:xs) -> pure $ MBool (Just False):s
     _ -> Left "isChar: Expected any"
 
+isInt :: Behaviour
+isInt = liftBhv $
+  \case
+    (MInt:xs) -> pure $ MBool (Just True):MInt:xs
+    s@(_:xs) -> pure $ MBool (Just False):s
+    _ -> Left "isChar: Expected any"
+
+
 arithmBehav :: Behaviour
 arithmBehav = liftBhv $
   \case
@@ -76,11 +97,59 @@ internalFns :: M.Map String Behaviour
 internalFns = M.fromList $ concatMap (\(names, behav) -> [ (name, behav) | name <- names ]) $
   [
     (["¿char"], isChar),
+    (["¿int"], isInt),
     (["+"], arithmBehav),
     (["-"], arithmBehav),
     (["*"], arithmBehav),
-    (["/"], arithmBehav)
+    (["/"], arithmBehav),
+    (["∅", "drp"], liftBhv $
+                   \case
+                     [] -> Left "drp: needs any"
+                     (_:xs) -> pure xs)
   ]
 
+behaviourOf :: M.Map String Behaviour -> [Instruction] -> Behaviour
+behaviourOf tbl prog = go prog M.empty
+  where
+    go [] _ = returnBhv
+    go (i:is) visited =
+      case i of
+        PushInt _ -> pushElem MInt `andThen` go is visited
+        PushChar _ -> pushElem MChar `andThen` go is visited
+        PushFloat _ -> pushElem MFloat `andThen` go is visited
+        Label l ->
+          Bhv $
+          \maps ->
+            if l `M.member` visited
+            then Left "what?"
+            else runBhv (go is $ M.insert l maps visited) maps
+        Call f ->
+          if f `M.member` tbl
+          then tbl M.! f `andThen` go is visited
+          else error $ "Not member: " ++ f
+        JumpTrue l -> branch (go (goto l) visited) (go is visited)
+        Goto l ->
+          Bhv $
+          \maps ->
+            if l `M.member` visited
+            then
+              if maps == visited M.! l
+              then runBhv (go is visited) maps
+              else Left $ "Loop has net effect: " ++ l
+            else runBhv (go is $ M.insert l maps visited) maps
+        Exit -> returnBhv
+    goto l =
+      case break (==Label l) prog of
+        (_, _:is) -> is
+        (_, _) -> error $ "Label " ++ l ++ " not found"
+
+allArgs :: Int -> [[MiniValue]]
+allArgs 0 = [[]]
+allArgs n = concatMap opts $ allArgs (n-1)
+  where
+    opts x = [MInt:x, MChar:x, MBool Nothing:x, MFloat:x]
+
 analyzeProgram :: FuncTable -> IO ()
-analyzeProgram = error "TODO"
+analyzeProgram tbl = do
+  let (Defined (Limited n) body) = tbl M.! "foo"
+  print $ runBhv (behaviourOf internalFns $ V.toList body) $ map idMap $ allArgs n
