@@ -86,7 +86,7 @@ branch success fail = Bhv $ \maps ->
         MBool (Just True):xs -> runBhv success [(i, xs)]
         MBool (Just False):xs -> runBhv fail [(i, xs)]
         MBool Nothing:xs ->
-          liftA2 (++) (runBhv success [(i, xs)]) (runBhv fail [(i, xs)])
+          collectResults [runBhv success [(i, xs)], runBhv fail [(i, xs)]]
         MGeneric g:xs ->
           liftA2 (++)
           (runBhv success [(subst g (MBool $ pure True) i, subst g (MBool $ pure True) xs)])
@@ -153,6 +153,79 @@ subst gen conc vals = map (\case
                                 else MGeneric g
                               t -> t) vals
 
+
+-- TODO: Resolve type
+isEqual :: Behaviour
+isEqual = Bhv $ \maps -> collectResults $ map
+  (\(i, o) ->
+     case o of
+       (a:b:xs) ->
+         if isMatching [a] [b] || isMatching [b] [a]
+         then pure [(i, MBool Nothing:xs)]
+         else pure [(i, MBool (pure False):xs)]
+       _ -> Left "=: Expected two")
+  maps
+
+-- TODO: Resolve type
+isntEqual :: Behaviour
+isntEqual = Bhv $ \maps -> collectResults $ map
+  (\(i, o) ->
+     case o of
+       (a:b:xs) ->
+         if isMatching [a] [b] || isMatching [b] [a]
+         then pure [(i, MBool Nothing:xs)]
+         else pure [(i, MBool (pure True):xs)]
+       _ -> Left "≠: Expected two")
+  maps
+
+comparison :: Behaviour
+comparison = Bhv $ \maps ->
+  collectResults $ map
+  (\(i, o) ->
+     case o of
+       (a:b:xs) ->
+         let tas = maybe [a] (const [MInt, MFloat]) $ genericName a
+             tbs = maybe [b] (const [MInt, MFloat]) $ genericName b
+         in sequence [ pure (sub i, sub $ MBool Nothing:xs)
+                     | ta <- tas, tb <- tbs, let sub = maybe id (`subst` ta) (genericName a)
+                                                       . maybe id (`subst` tb) (genericName b)
+                     ]
+       _ -> Left "comparison: Expected numeric arguments")
+  maps
+
+-- TODO: Stricter booleans
+boolOp :: (Bool -> Bool -> Bool) -> Behaviour
+boolOp f = Bhv $ \maps -> collectResults $ map
+  (\(i, o) ->
+     case o of
+       (a:b:xs) ->
+         let tas = maybe [a] (const [MBool (Just True), MBool (Just False)]) $ genericName a
+             tbs = maybe [b] (const [MBool (Just True), MBool (Just False)]) $ genericName b
+         in sequence [ pure (sub i, sub $ MBool (f' ta tb):xs)
+                     | ta <- tas, tb <- tbs, let sub = maybe id (`subst` ta) (genericName a)
+                                                       . maybe id (`subst` tb) (genericName b),
+                       isBool ta, isBool tb
+                     ]
+       _ -> Left "boolOp: Expected boolean arguments")
+  maps
+  where
+    f' (MBool a) (MBool b) = liftA2 f a b
+    isBool (MBool _) = True
+    isBool _ = False
+
+unBoolOp :: (Bool -> Bool) -> Behaviour
+unBoolOp f = Bhv $ \maps -> collectResults $ map
+  (\(i, o) ->
+     case o of
+       (MBool (Just x):xs) -> pure [(i, MBool (pure $ f x):xs)]
+       (MBool Nothing:xs) -> pure [(i, MBool (pure $ f True):xs), (i, MBool (pure $ f False):xs)]
+       (MGeneric g:xs) -> pure [(subst g (MBool $ pure True) i,
+                                 subst g (MBool $ pure True) $ MBool (pure $ f True):xs),
+                                (subst g (MBool $ pure False) i,
+                                 subst g (MBool $ pure False) $ MBool (pure $ f False):xs)]
+       _ -> Left "unBoolOp: Expected boolean arguments")
+  maps
+
 internalFns :: M.Map String Behaviour
 internalFns = M.fromList $ concatMap (\(names, behav) -> [ (name, behav) | name <- names ]) $
   [
@@ -162,6 +235,7 @@ internalFns = M.fromList $ concatMap (\(names, behav) -> [ (name, behav) | name 
     (["-"], arithmBehav),
     (["*"], arithmBehav),
     (["/"], arithmBehav),
+    (["%"], arithmBehav),
     (["∅", "drp"], liftBhv $
                    \case
                      [] -> Left "drp: needs any"
@@ -169,7 +243,58 @@ internalFns = M.fromList $ concatMap (\(names, behav) -> [ (name, behav) | name 
     (["⇈", "dup"], liftBhv $
                    \case
                      [] -> Left "dup: needs any"
-                     (a:xs) -> pure $ a:a:xs)
+                     (a:xs) -> pure $ a:a:xs),
+    (["↻", "rot"], liftBhv $
+                   \case
+                     [] -> Left "rot: needs 3"
+                     (a:b:c:xs) -> pure $ c:a:b:xs),
+    (["↷", "rot-"], liftBhv $
+                   \case
+                     [] -> Left "rot-: needs 3"
+                     (a:b:c:xs) -> pure $ b:c:a:xs),
+    (["↕", "swp"], liftBhv $
+                   \case
+                     [] -> Left "swp: needs 2"
+                     (a:b:xs) -> pure $ b:a:xs),
+    (["⊼", "ovr"], liftBhv $
+                   \case
+                     [] -> Left "ovr: needs 2"
+                     (a:b:xs) -> pure $ b:a:b:xs),
+    (["▭", "pack"], liftBhv $
+                   \case
+                     xs -> pure [MStack $ pure xs]),
+    (["⋮", "spt"], liftBhv $
+                   \case
+                     (MStack Nothing:xs) -> Left "spt: Expanded unresolvable stack"
+                     (MStack (Just as):xs) -> pure $ as ++ xs
+                     _ -> Left "spt: Expected stack"),
+    (["≡", "dpt"], liftBhv $ \xs -> pure $ MInt:xs),
+    (["·", "null"], liftBhv $
+                    \case
+                      [] -> pure [MBool $ pure True]
+                      xs -> pure $ MBool (pure False):xs),
+    (["⇆", "rev"], liftBhv $ \xs -> pure $ reverse xs),
+    (["⇓", "shv"], liftBhv $
+                   \case
+                     [] -> Left "shv: Expected any"
+                     x:xs -> pure $ xs ++ [x]),
+    (["⇑", "brg"], liftBhv $
+                   \case
+                     [] -> Left "brg: Expected any"
+                     xs -> pure $ last xs : init xs),
+    (["⊤", "T"], liftBhv $ \xs -> pure $ MBool (pure True):xs),
+    (["⊥", "F"], liftBhv $ \xs -> pure $ MBool (pure False):xs),
+    (["="], isEqual),
+    (["≠", "!="], isntEqual),
+    (["<"], comparison),
+    ([">"], comparison),
+    (["≤", "<="], comparison),
+    (["≥", ">="], comparison),
+    (["∧", "&&"], boolOp (&&)),
+    (["∨", "||"], boolOp (||)),
+    (["¬"], unBoolOp not),
+    (["⚠", "dbg"], returnBhv),
+    (["⊗", "pnc"], Bhv $ const $ Left "Panic")
   ]
 
 behaviourOf :: String -> M.Map String Behaviour -> [Instruction] -> Behaviour

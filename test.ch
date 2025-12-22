@@ -35,3 +35,8 @@ fn recursive-ok (x) {
 fn recursive-fail (x) {
 → 1 - ⇈ recursive-fail
 }
+
+fn fibo (N) {
+→ ⇈ 0 = ? ⇈ 1 = ? ⇈ 1 - fibo ↕ 2 - fibo +
+        ↓       ↓
+}
