@@ -2,7 +2,7 @@
 {-# LANGUAGE TupleSections #-}
 module Analyzer where
 
-import           Control.Monad ((>=>))
+import           Control.Monad ((>=>), forM_)
 import           Core          (FuncTable, arithmetic, Function (Defined))
 import           Data.Either   (isLeft, lefts, rights)
 import           Data.Maybe    (mapMaybe)
@@ -11,6 +11,7 @@ import qualified Data.Map as M
 import qualified Data.Vector as V
 import Parser (Arguments(..))
 import Debug.Trace (trace)
+import Data.List (intercalate)
 
 data MiniValue = MInt
                | MFloat
@@ -38,6 +39,11 @@ instance Eq MiniValue where
   MChar == MChar = True
   MBool Nothing == MBool Nothing = True
   MBool (Just a) == MBool (Just b) = a == b
+  MStack Nothing == MStack Nothing = True
+  MStack (Just a) == MStack (Just b) = a == b
+  MFn _ == MFn _ = False
+  MAbstract == MAbstract = False
+  MGeneric x == MGeneric y = x == y
   _ == _ = False
 
 type Mapping = ([MiniValue], [MiniValue])
@@ -81,11 +87,15 @@ branch success fail = Bhv $ \maps ->
         MBool (Just False):xs -> runBhv fail [(i, xs)]
         MBool Nothing:xs ->
           liftA2 (++) (runBhv success [(i, xs)]) (runBhv fail [(i, xs)])
+        MGeneric g:xs ->
+          liftA2 (++)
+          (runBhv success [(subst g (MBool $ pure True) i, subst g (MBool $ pure True) xs)])
+          (runBhv fail [(subst g (MBool $ pure False) i, subst g (MBool $ pure False) xs)])
         _ ->
           Left "branch: Expected bool"
 
 allSubs :: [MiniValue]
-allSubs = [MFloat, MChar, MBool Nothing, MStack Nothing, MAbstract, MFn Nothing]
+allSubs = [MInt, MFloat, MChar, MBool Nothing, MStack Nothing, MAbstract, MFn Nothing]
 
 delete :: Eq a => a -> [a] -> [a]
 delete a xs = case break (==a) xs of
@@ -155,11 +165,15 @@ internalFns = M.fromList $ concatMap (\(names, behav) -> [ (name, behav) | name 
     (["∅", "drp"], liftBhv $
                    \case
                      [] -> Left "drp: needs any"
-                     (_:xs) -> pure xs)
+                     (_:xs) -> pure xs),
+    (["⇈", "dup"], liftBhv $
+                   \case
+                     [] -> Left "dup: needs any"
+                     (a:xs) -> pure $ a:a:xs)
   ]
 
-behaviourOf :: M.Map String Behaviour -> [Instruction] -> Behaviour
-behaviourOf tbl prog = go prog M.empty
+behaviourOf :: String -> M.Map String Behaviour -> [Instruction] -> Behaviour
+behaviourOf fname tbl prog = go prog M.empty
   where
     go [] _ = returnBhv
     go (i:is) visited =
@@ -171,25 +185,33 @@ behaviourOf tbl prog = go prog M.empty
                      `andThen` go is visited
         PushFn name -> pushElem (MFn $ pure $ tbl M.! name)
                        `andThen` go is visited
-        PushFnVal _ _ -> error "TODO"
-        ForkTo _ -> error "TODO"
+        PushFnVal _ _ -> Bhv $ const $ Left "Lambda functions aren't analyzed"
+        ForkTo _ -> Bhv $ const $ Left "Threads aren't analyzed"
         Label l ->
           Bhv $
           \maps ->
             if l `M.member` visited
             then Left "what?"
             else runBhv (go is $ M.insert l maps visited) maps
-        Call f ->
-          if f `M.member` tbl
-          then tbl M.! f `andThen` go is visited
-          else error $ "Not member: " ++ f
+        Call f
+          | f `M.member` tbl -> tbl M.! f `andThen` go is visited
+          | f == fname ->
+            Bhv $ \maps -> collectResults $ map
+            (\(i, o) ->
+              if isMatching i o
+              then pure [(i, o)]
+              else Left $ "Recursion has net effect: " ++ fname)
+            maps
+          | otherwise -> error "TODO -- mutual recursion / Error: Unknown function"
         JumpTrue l -> branch (go (goto l) visited) (go is visited)
-        Goto l ->
+        Goto l -> 
           Bhv $
-          \maps ->
+          \maps -> 
             if l `M.member` visited
             then
-              if maps == visited M.! l
+              if all (\((i1, o1), (i2, o2)) -> isMatching i1 i2
+                                               && isMatching o1 o2) $
+                 zip (visited M.! l) maps
               then runBhv (go is visited) maps
               else Left $ "Loop has net effect: " ++ l
             else runBhv (go is $ M.insert l maps visited) maps
@@ -201,10 +223,31 @@ behaviourOf tbl prog = go prog M.empty
         (_, _:is) -> is
         (_, _) -> error $ "Label " ++ l ++ " not found"
 
+-- | Looks for exact match, i.e. @length exp = length got@
+isMatching :: [MiniValue] -> [MiniValue] -> Bool
+isMatching = go M.empty
+  where
+    go :: M.Map String MiniValue -> [MiniValue] -> [MiniValue] -> Bool
+    go _ [] [] = True
+    go s (e:es) (g:gs) =
+      case e of
+        MGeneric n ->
+          case M.lookup n s of
+            Just v  -> v == g && go s es gs
+            Nothing -> go (M.insert n g s) es gs
+        _ -> e == g && go s es gs
+    go _ _ _ = False
+
 allArgs :: Int -> [MiniValue]
 allArgs n = [ MGeneric ("G" ++ show i) | i <- [1..n] ]
 
 analyzeProgram :: FuncTable -> IO ()
 analyzeProgram tbl = do
-  let (Defined (Limited n) body) = tbl M.! "foo"
-  print $ runBhv (behaviourOf internalFns $ V.toList body) [idMap (allArgs n)]
+  forM_ (M.toList tbl) $ \case
+    (fname, Defined (Limited n) body) -> do
+      putStrLn $ "fn " ++ fname ++ " (" ++ intercalate ", " [ "G" ++ show i | i <- [1..n] ] ++ "):"
+      case runBhv (behaviourOf fname internalFns $ V.toList body) [idMap (allArgs n)] of
+        Left err -> putStrLn $ "FAIL: " ++ err
+        Right ms ->
+          forM_ ms $ \(i, o) -> putStrLn $ "  (" ++ intercalate ", " (map show i) ++ ") -> (" ++ intercalate ", " (map show o) ++ ")"
+    _ -> return ()
